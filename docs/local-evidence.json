@@ -1,0 +1,14 @@
+{
+  "transport": "streamable-http over loopback TCP",
+  "server": "OpenRemote Probe",
+  "protocol": "2025-11-25",
+  "unauthorized_status": 401,
+  "tools": [
+    "system_info",
+    "list_files",
+    "execute_command"
+  ],
+  "exit_code": 0,
+  "receipt_verified": true,
+  "chatgpt_plus_verified": false
+}

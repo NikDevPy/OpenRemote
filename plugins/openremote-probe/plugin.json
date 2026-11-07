@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "openremote-probe",
+  "version": "0.0.1",
+  "description": "Проверка system_info, list_files и ограниченного execute_command перед разработкой OpenRemote. Требует настройки реального MCP-подключения.",
+  "author": {"name": "NikDevPy"},
+  "repository": "https://github.com/NikDevPy/OpenRemote",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "OpenRemote Probe",
+        "shortDescription": "Проверка удалённых команд",
+        "longDescription": "Тестовый Linux MCP. Две команды создают проверяемые квитанции; произвольный shell не поддерживается. Подключение и доступность Plus требуют отдельной проверки.",
+        "developerName": "NikDevPy",
+        "category": "Developer Tools",
+        "capabilities": ["Read", "Write"]
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+[project]
+name = "openremote-probe"
+version = "0.0.1"
+description = "Проверочный MCP-стенд OpenRemote, не полноценный агент"
+requires-python = ">=3.11"
+dependencies = ["mcp==1.29.0", "uvicorn>=0.35,<1"]
+
+[project.scripts]
+openremote-probe = "openremote_probe.server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["openremote_probe*"]
