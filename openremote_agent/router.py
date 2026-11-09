@@ -15,9 +15,12 @@ from .engine import Agent
 
 REQUIRED_ROLES = {
     "system_info": "viewer",
+    "list_workspaces": "viewer",
     "list_files": "viewer",
     "read_text": "viewer",
     "write_text": "operator",
+    "replace_text": "operator",
+    "run_argv": "admin",
     "execute_command": "operator",
     "preview_command": "viewer",
     "audit_tail": "admin",
@@ -95,7 +98,7 @@ class Router:
         if target == self.agent.config.device_id:
             # Локальная реализация ещё раз проверяет роли и пути.
             fn = getattr(self.agent, tool)
-            if tool == "execute_command":
+            if tool in {"execute_command", "run_argv"}:
                 return await fn(**arguments)
             return fn(**arguments)
 

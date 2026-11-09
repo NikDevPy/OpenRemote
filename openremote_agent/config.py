@@ -70,6 +70,19 @@ class SSHPeer:
 
 
 @dataclass(frozen=True)
+class Workspace:
+    """Разрешённый владельцем каталог с правами read/write."""
+    path: Path
+    access: str = "read"
+
+    def __post_init__(self) -> None:
+        if not self.path.is_absolute() or self.access not in {"read", "write"}:
+            raise ValueError("Workspace: абсолютный путь и access=read/write")
+        if not self.path.is_dir() or self.path.is_symlink():
+            raise ValueError("Workspace должен быть реальным существующим каталогом")
+
+
+@dataclass(frozen=True)
 class Config:
     device_id: str
     root: Path
@@ -77,12 +90,16 @@ class Config:
     role: str = "viewer"
     commands: dict[str, CommandSpec] = field(default_factory=dict)
     peers: dict[str, SSHPeer] = field(default_factory=dict)
+    workspaces: dict[str, Workspace] = field(default_factory=dict)
+    ad_hoc_enabled: bool = False
 
     def __post_init__(self) -> None:
         if not DEVICE_RE.fullmatch(self.device_id):
             raise ValueError("Недопустимый device_id")
         if self.role not in ROLES:
             raise ValueError("Роль должна быть viewer, operator или admin")
+        if type(self.ad_hoc_enabled) is not bool:
+            raise ValueError("ad_hoc_enabled должен быть bool")
         if not self.root.is_absolute() or not self.state.is_absolute():
             raise ValueError("root и state должны быть абсолютными путями")
         if self.root == self.state or self.root in self.state.parents or self.state in self.root.parents:
@@ -90,6 +107,11 @@ class Config:
         for name in self.commands:
             if not DEVICE_RE.fullmatch(name):
                 raise ValueError("Недопустимый идентификатор команды")
+        for name, workspace in self.workspaces.items():
+            if not DEVICE_RE.fullmatch(name) or name == "sandbox" or not isinstance(workspace, Workspace):
+                raise ValueError("Некорректное имя или тип workspace")
+            if self.state == workspace.path or self.state in workspace.path.parents or workspace.path in self.state.parents:
+                raise ValueError("Каталог аудита не может входить в workspace")
         for name, peer in self.peers.items():
             if not DEVICE_RE.fullmatch(name) or name == self.device_id or not isinstance(peer, SSHPeer):
                 raise ValueError("Недопустимый идентификатор доверенного SSH-устройства")
@@ -101,7 +123,7 @@ def load_config(path: Path) -> Config:
     if not path.is_file() or path.is_symlink() or st.st_uid != os.getuid() or st.st_mode & 0o022:
         raise ValueError("Конфигурация должна принадлежать пользователю и не допускать чужой записи")
     data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or set(data) - {"device_id", "root", "state", "role", "commands", "peers"}:
+    if not isinstance(data, dict) or set(data) - {"device_id", "root", "state", "role", "commands", "peers", "workspaces", "ad_hoc_enabled"}:
         raise ValueError("Неизвестные ключи конфигурации")
     entries = data.get("commands", {})
     if not isinstance(entries, dict):
@@ -125,8 +147,17 @@ def load_config(path: Path) -> Config:
         if not isinstance(entry, dict) or set(entry) != {"target", "host_name", "python", "config_path"}:
             raise ValueError(f"Неправильная запись устройства: {name}")
         peers[name] = SSHPeer(**entry)
+    entries = data.get("workspaces", {})
+    if not isinstance(entries, dict):
+        raise ValueError("workspaces должен быть объектом")
+    workspaces = {}
+    for name, entry in entries.items():
+        if not isinstance(entry, dict) or set(entry) - {"path", "access"}:
+            raise ValueError(f"Неправильный workspace: {name}")
+        workspaces[name] = Workspace(Path(entry["path"]), entry.get("access", "read"))
     return Config(
         device_id=data["device_id"], root=Path(data["root"]),
         state=Path(data["state"]), role=data.get("role", "viewer"),
-        commands=commands, peers=peers,
+        commands=commands, peers=peers, workspaces=workspaces,
+        ad_hoc_enabled=data.get("ad_hoc_enabled", False),
     )

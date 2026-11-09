@@ -3,9 +3,9 @@
 **Состояние на 9 ноября 2026:** созданы две отдельные реализации.
 
 - **OpenRemote Probe** — старый тестовый сервер из трёх инструментов, подключён к `@OpenRemote test` через Secure MCP Tunnel на terra; реальные чтение и запись из ChatGPT проверены.
-- **OpenRemote Agent (v0.2.1)** — новый MCP с восемью инструментами, sandbox/allowlist/audit/RBAC уровня экземпляра и SSH-маршрутом `terra → rock` через Tailscale. Реальный сквозной smoke успешен, но **этот Agent пока не подключён к ChatGPT-плагину**.
+- **OpenRemote Agent (v0.3.1)** — новый MCP с 11 инструментами, sandbox/allowlist/audit/RBAC уровня экземпляра и SSH-маршрутом `terra → rock` через Tailscale. Реальный сквозной smoke успешен, но **этот Agent пока не подключён к ChatGPT-плагину**.
 
-Документы: [агент](docs/agent-mvp.md), [SSH routing](docs/ssh-routing.md), [туннель и автозапуск](docs/tunnel-runbook.md), [командные политики и локальные подтверждения](docs/command-policies.md), [сравнение с RDC и roadmap](docs/rdc-gap-analysis.md).
+Документы: [агент](docs/agent-mvp.md), [права владельца и рабочие области](docs/owner-control.md), [SSH routing](docs/ssh-routing.md), [туннель и автозапуск](docs/tunnel-runbook.md), [командные политики](docs/command-policies.md), [сравнение с RDC](docs/rdc-gap-analysis.md). Скрипт подготовки отдельного туннеля: `scripts/setup_agent_tunnel.sh` (нужен новый ID из Platform).
 
 ## Исторический протокол Probe
 
@@ -97,7 +97,7 @@ tunnel-client run --profile openremote-probe
    Не подменять этот тест успешным вызовом в Work/Codex или Responses API.
 7. Выполнить сценарии из [протокола](docs/acceptance.md).
 
-Туннель **подготовлен инструкцией, но не создан и не проверен** в этой сессии.
+**Историческое замечание из этапа 0:** в первой проверке туннель ещё не был подключён. Впоследствии OpenRemote Probe подключён и проверен из ChatGPT; см. [runbook](docs/tunnel-runbook.md). Новый Agent подключается отдельно.
 Если он недоступен, следующий вариант — публичный HTTPS endpoint с полноценным
 OAuth через проверенного провайдера. Такой deployment пока не реализован.
 

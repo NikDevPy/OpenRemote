@@ -125,8 +125,9 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                 await session.initialize()
                 tools = {t.name: t for t in (await session.list_tools()).tools}
                 self.assertEqual(set(tools), {
-                    "system_info", "list_devices", "list_files", "read_text",
-                    "write_text", "execute_command", "preview_command", "audit_tail"
+                    "system_info", "list_devices", "list_workspaces",
+                    "list_files", "read_text", "write_text", "replace_text",
+                    "execute_command", "run_argv", "preview_command", "audit_tail"
                 })
                 self.assertFalse(tools["execute_command"].annotations.readOnlyHint)
                 self.assertTrue(tools["execute_command"].annotations.destructiveHint)

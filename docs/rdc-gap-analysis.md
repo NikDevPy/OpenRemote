@@ -21,7 +21,7 @@ This is the **plugin's own configuration**, not a list of actions approved or pr
 
 | Priority | Next capability | Gate before rollout |
 |---|---|---|
-| P0 | Connect **new** eight-tool OpenRemote Agent as a separate private ChatGPT plugin; preserve existing OpenRemote test | Full tool discovery, read/write confirmation and auth checks |
+| P0 | Connect **new** eleven-tool OpenRemote Agent as a separate private ChatGPT plugin; preserve existing OpenRemote test | Full tool discovery, read/write confirmation and auth checks |
 | P0 | Per-user identity and authorization, separate local device approvals | No global admin role accessible to arbitrary plugin users |
 | P1 | Concrete administrative tools: service inspection/restart, logs, network diagnostics, power operations | Explicit schemas, least privilege and destructive annotations |
 | P1 | Durable command jobs: PID, output pagination, cancel, bounded PTY sessions | Session limits, kill-group behavior, bounded logs and user consent |

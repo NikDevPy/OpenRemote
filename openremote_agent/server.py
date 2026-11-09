@@ -32,7 +32,20 @@ class ListResult(TypedDict):
 class ReadResult(TypedDict):
     content: str
     size: int
+    sha256: str
     operation_id: str
+
+class WorkspaceResult(TypedDict):
+    workspaces: list[dict]
+    operation_id: str
+
+
+class ReplaceResult(TypedDict):
+    replaced: bool
+    size: int
+    sha256: str
+    operation_id: str
+
 
 class WriteResult(TypedDict):
     created: bool
@@ -79,22 +92,30 @@ class Server:
             stateless_http=True, json_response=True,
             instructions=(
                 "OpenRemote доступен только на явно зарегистрированных устройствах. "
-                "Файлы ограничены sandbox. execute_command запускает исключительно "
-                "предопределённые локальным администратором команды; произвольный shell "
-                "и аргументы запрещены. Уважай отказ и не обходи ограничений."
+                "Файловые инструменты работают только внутри разрешённых workspaces. "
+                "execute_command запускает предопределённые команды; "
+                "run_argv (когда включён владельцем и доступна роль admin) может "
+                "выполнять произвольные argv от имени пользователя ОС. "
+                "Этот инструмент высокорисковый: учитывай подтверждение клиента, "
+                "безопасность ОС и не обходи ограничения платформы."
             ),
         )
         read = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
         write = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
+        # Существующий файл может меняться; отдельная метка для потенциально разрушительной операции.
+        replace_write = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False)
         # Назначение команды задаётся локальной политикой и может быть необратимым.
         command_write = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True)
         self.mcp.tool(annotations=read)(self.system_info)
         self.mcp.tool(annotations=read)(self.list_devices)
+        self.mcp.tool(annotations=read)(self.list_workspaces)
         self.mcp.tool(annotations=read)(self.list_files)
         self.mcp.tool(annotations=read)(self.read_text)
         self.mcp.tool(annotations=write)(self.write_text)
+        self.mcp.tool(annotations=replace_write)(self.replace_text)
         self.mcp.tool(annotations=read)(self.preview_command)
         self.mcp.tool(annotations=command_write)(self.execute_command)
+        self.mcp.tool(annotations=command_write)(self.run_argv)
         self.mcp.tool(annotations=read)(self.audit_tail)
 
     async def system_info(self, device_id: str | None = None) -> InfoResult:
@@ -105,17 +126,32 @@ class Server:
         """Покажи локальное и настроенные SSH-устройства; configured не равно online."""
         return self.router.list_devices()
 
-    async def list_files(self, path: str = ".", device_id: str | None = None) -> ListResult:
-        """Прочти до 100 имён в sandbox выбранного устройства, не выходя за его границы."""
-        return await self.router.call("list_files", {"path": path}, device_id)
+    async def list_workspaces(self, device_id: str | None = None) -> WorkspaceResult:
+        """Список каталогов, заранее разрешённых владельцем устройства, и уровня read/write."""
+        return await self.router.call("list_workspaces", {}, device_id)
 
-    async def read_text(self, path: str, device_id: str | None = None) -> ReadResult:
-        """Прочти UTF-8 файл до 64 КиБ в sandbox выбранного устройства."""
-        return await self.router.call("read_text", {"path": path}, device_id)
+    async def list_files(self, path: str = ".", device_id: str | None = None,
+                         workspace: str = "sandbox") -> ListResult:
+        """Прочти до 100 имён внутри выбранного workspace (по умолчанию sandbox)."""
+        return await self.router.call("list_files", {"path": path, "workspace": workspace}, device_id)
 
-    async def write_text(self, path: str, content: str, device_id: str | None = None) -> WriteResult:
-        """Создай новый файл в sandbox выбранного устройства. Нужна operator, перезапись запрещена."""
-        return await self.router.call("write_text", {"path": path, "content": content}, device_id)
+    async def read_text(self, path: str, device_id: str | None = None,
+                        workspace: str = "sandbox") -> ReadResult:
+        """Прочти файл из разрешённого workspace, верни SHA-256 для контроля версии."""
+        return await self.router.call("read_text", {"path": path, "workspace": workspace}, device_id)
+
+    async def write_text(self, path: str, content: str, device_id: str | None = None,
+                         workspace: str = "sandbox") -> WriteResult:
+        """Создай новый UTF-8 файл в workspace с write-доступом. Нужна роль operator."""
+        return await self.router.call("write_text", {"path": path, "content": content, "workspace": workspace}, device_id)
+
+    async def replace_text(self, path: str, content: str, expected_sha256: str,
+                           device_id: str | None = None, workspace: str = "sandbox") -> ReplaceResult:
+        """Атомарно замени текст при совпадении текущего SHA-256, только в write workspace."""
+        return await self.router.call("replace_text", {
+            "path": path, "content": content,
+            "expected_sha256": expected_sha256, "workspace": workspace,
+        }, device_id)
 
     async def preview_command(self, command_id: str, device_id: str | None = None) -> CommandPreviewResult:
         """Проверь заранее разрешённую команду, её уровень риска и необходимость локального допуска, не запуская её."""
@@ -124,6 +160,13 @@ class Server:
     async def execute_command(self, command_id: str, device_id: str | None = None) -> CommandResult:
         """Запусти именованную команду из политики выбранного устройства. Может менять систему; privileged требует admin и локального одноразового допуска. Без пользовательских argv или shell."""
         return await self.router.call("execute_command", {"command_id": command_id}, device_id)
+
+    async def run_argv(self, argv: list[str], device_id: str | None = None,
+                       workspace: str = "sandbox", timeout: float = 30) -> CommandResult:
+        """Высокорисковое системное действие: произвольный argv как пользователь ОС. Требуются admin и отдельное ad_hoc_enabled у владельца целевой машины. Может менять данные, запускать сеть и процессы. Без shell=True, stdin и повышения привилегий. Запрос может потребовать подтверждения ChatGPT."""
+        return await self.router.call("run_argv", {
+            "argv": argv, "workspace": workspace, "timeout": timeout,
+        }, device_id)
 
     async def audit_tail(self, limit: int = 20, device_id: str | None = None) -> AuditResult:
         """Последние события аудита на выбранном устройстве, без путей и содержимого. Нужна admin."""
@@ -196,7 +239,10 @@ def main() -> None:
                 "device_id": config.device_id, "role": config.role,
                 "sandbox": str(config.root), "audit": str(config.state),
                 "commands": sorted(config.commands),
-                "peers": sorted(config.peers), "ready": True
+                "peers": sorted(config.peers),
+                "workspaces": sorted(config.workspaces),
+                "ad_hoc_enabled": config.ad_hoc_enabled,
+                "ready": True
             }, ensure_ascii=False, indent=2))
             return
         server = Server(agent)

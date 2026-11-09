@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -67,34 +68,75 @@ class Agent:
         return {"devices": [{"device_id": self.config.device_id, "status": "online", "transport": "local"}],
                 "operation_id": self.audit.record("list_devices", "ok", started)}
 
-    def list_files(self, path: str = ".", device_id: str | None = None) -> dict:
+    @contextmanager
+    def _file_area(self, workspace: str, writing: bool = False):
+        if workspace == "sandbox":
+            yield self.files
+            return
+        spec = self.config.workspaces.get(workspace)
+        if spec is None:
+            raise ValueError("Рабочая область не зарегистрирована")
+        if writing and spec.access != "write":
+            raise PermissionError("Рабочая область доступна только для чтения")
+        handler = SafeFiles(spec.path, private=False)
+        try:
+            yield handler
+        finally:
+            handler.close()
+
+    def list_workspaces(self, device_id: str | None = None) -> dict:
+        started = self._guard("list_workspaces", "viewer", device_id)
+        names = [{"name": "sandbox", "access": "write"}]
+        names.extend({"name": name, "access": spec.access}
+                     for name, spec in sorted(self.config.workspaces.items()))
+        return {"workspaces": names, "operation_id": self.audit.record("list_workspaces", "ok", started)}
+
+    def list_files(self, path: str = ".", device_id: str | None = None,
+                   workspace: str = "sandbox") -> dict:
         started = self._guard("list_files", "viewer", device_id)
         try:
-            result = self.files.list_files(path)
-        except (ValueError, OSError):
+            with self._file_area(workspace) as area:
+                result = area.list_files(path)
+        except (ValueError, OSError, PermissionError):
             self.audit.record("list_files", "denied", started)
             raise ValueError("Каталог недоступен по политике OpenRemote") from None
         result["operation_id"] = self.audit.record("list_files", "ok", started)
         return result
 
-    def read_text(self, path: str, device_id: str | None = None) -> dict:
+    def read_text(self, path: str, device_id: str | None = None,
+                  workspace: str = "sandbox") -> dict:
         started = self._guard("read_text", "viewer", device_id)
         try:
-            result = self.files.read_text(path)
-        except (ValueError, OSError, UnicodeError):
+            with self._file_area(workspace) as area:
+                result = area.read_text(path)
+        except (ValueError, OSError, UnicodeError, PermissionError):
             self.audit.record("read_text", "denied", started)
             raise ValueError("Файл недоступен или не является допустимым UTF-8 текстом") from None
         result["operation_id"] = self.audit.record("read_text", "ok", started)
         return result
 
-    def write_text(self, path: str, content: str, device_id: str | None = None) -> dict:
+    def write_text(self, path: str, content: str, device_id: str | None = None,
+                   workspace: str = "sandbox") -> dict:
         started = self._guard("write_text", "operator", device_id)
         try:
-            result = self.files.write_text(path, content)
-        except (ValueError, OSError, UnicodeError):
+            with self._file_area(workspace, writing=True) as area:
+                result = area.write_text(path, content)
+        except (ValueError, OSError, UnicodeError, PermissionError):
             self.audit.record("write_text", "denied", started)
             raise ValueError("Создание файла запрещено: путь, размер или существующий файл") from None
         result["operation_id"] = self.audit.record("write_text", "ok", started)
+        return result
+
+    def replace_text(self, path: str, content: str, expected_sha256: str,
+                     workspace: str = "sandbox", device_id: str | None = None) -> dict:
+        started = self._guard("replace_text", "operator", device_id)
+        try:
+            with self._file_area(workspace, writing=True) as area:
+                result = area.replace_text(path, content, expected_sha256)
+        except (ValueError, OSError, UnicodeError, PermissionError):
+            self.audit.record("replace_text", "denied", started)
+            raise ValueError("Замена запрещена, файл изменён или путь вне рабочей области") from None
+        result["operation_id"] = self.audit.record("replace_text", "ok", started)
         return result
 
     def preview_command(self, command_id: str, device_id: str | None = None) -> dict:
@@ -120,6 +162,80 @@ class Agent:
         started = self._guard("audit_tail", "admin", None)
         entries = self.audit.tail(limit)
         return {"entries": entries, "operation_id": self.audit.record("audit_tail", "ok", started)}
+
+    async def run_argv(self, argv: list[str], workspace: str = "sandbox",
+                       timeout: float = 30, device_id: str | None = None) -> dict:
+        """Запуск произвольного argv в контексте пользователя ОС, без shell=True.
+
+        Высокорисковая функция, включаемая только отдельным флагом локального
+        конфига. Сервер не повышает системные права и не обходит правила клиента.
+        """
+        started = self._guard("run_argv", "admin", device_id)
+        if not self.config.ad_hoc_enabled:
+            self.audit.record("run_argv", "disabled", started)
+            raise PermissionError("Владелец устройства не включил ad_hoc_enabled")
+        if (not isinstance(argv, list) or not 1 <= len(argv) <= 40 or
+                not all(isinstance(x, str) and x and "\x00" not in x for x in argv) or
+                sum(len(x) for x in argv) > 8192 or not os.path.isabs(argv[0])):
+            self.audit.record("run_argv", "invalid", started)
+            raise ValueError("Нужен список из 1–40 аргументов с абсолютным исполняемым файлом")
+        if not isinstance(timeout, (int, float)) or not 0.2 <= timeout <= 60:
+            self.audit.record("run_argv", "invalid", started)
+            raise ValueError("Таймаут должен быть 0.2–60 секунд")
+        async with self._executions:
+            try:
+                with self._file_area(workspace) as area:
+                    proc = await asyncio.create_subprocess_exec(
+                        *argv,
+                        cwd=str(area.root),
+                        env={"LANG": "C.UTF-8", "PATH": "/usr/bin:/bin",
+                             "HOME": os.path.expanduser("~")},
+                        stdin=asyncio.subprocess.DEVNULL,
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                        start_new_session=True,
+                    )
+            except (OSError, ValueError, PermissionError):
+                self.audit.record("run_argv", "spawn_error", started)
+                raise ValueError("Команду нельзя запустить или рабочая область недоступна") from None
+
+            async def read_capped(stream):
+                chunks = []
+                size = 0
+                while True:
+                    part = await stream.read(4096)
+                    if not part:
+                        return b"".join(chunks)
+                    size += len(part)
+                    if size > self.MAX_OUTPUT:
+                        raise ValueError("Вывод превышает 8 КиБ")
+                    chunks.append(part)
+
+            try:
+                stdout, stderr, _ = await asyncio.wait_for(
+                    asyncio.gather(read_capped(proc.stdout), read_capped(proc.stderr), proc.wait()),
+                    timeout=timeout,
+                )
+            except (TimeoutError, ValueError, asyncio.CancelledError) as exc:
+                if proc.returncode is None:
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                await proc.wait()
+                self.audit.record("run_argv",
+                                  "timeout" if isinstance(exc, TimeoutError) else "interrupted",
+                                  started)
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
+                raise ValueError("Выполнение прервано: таймаут или превышен лимит вывода") from None
+            result = {
+                "exit_code": proc.returncode,
+                "stdout": stdout.decode("utf-8", errors="replace"),
+                "stderr": stderr.decode("utf-8", errors="replace"),
+            }
+            result["operation_id"] = self.audit.record(
+                "run_argv", "ok" if proc.returncode == 0 else "failed", started)
+            return result
 
     async def execute_command(self, command_id: str, device_id: str | None = None) -> dict:
         """Без shell и произвольных аргументов: только команда из локальной политики."""
