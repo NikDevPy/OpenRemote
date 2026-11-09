@@ -1,133 +1,123 @@
-# OpenRemote — MCP probe и SSH Agent
+# OpenRemote
 
-**Состояние на 9 ноября 2026:** созданы две отдельные реализации.
+**A self-hosted MCP remote-control agent for your own Linux computers.** Connect a local machine to ChatGPT through an OpenAI Secure MCP Tunnel, and optionally route requests to other machines over SSH (including Tailscale). Each user deploys **their own private instance** with their own credentials, devices, and permissions.
 
-- **OpenRemote Probe** — старый тестовый сервер из трёх инструментов, подключён к `@OpenRemote test` через Secure MCP Tunnel на terra; реальные чтение и запись из ChatGPT проверены.
-- **OpenRemote Agent (v0.3.1)** — новый MCP с 11 инструментами, sandbox/allowlist/audit/RBAC уровня экземпляра и SSH-маршрутом `terra → rock` через Tailscale. Реальный сквозной smoke успешен, но **этот Agent пока не подключён к ChatGPT-плагину**.
+> **Security warning:** OpenRemote can read and modify files and, if explicitly enabled, run arbitrary programs as the account hosting the agent. Treat its private ChatGPT connection as privileged access to your computer. Never publish a tunnel credential, share a private connector, or expose an unrestricted instance to strangers.
 
-Документы: [агент](docs/agent-mvp.md), [права владельца и рабочие области](docs/owner-control.md), [SSH routing](docs/ssh-routing.md), [туннель и автозапуск](docs/tunnel-runbook.md), [командные политики](docs/command-policies.md), [сравнение с RDC](docs/rdc-gap-analysis.md). Скрипт подготовки отдельного туннеля: `scripts/setup_agent_tunnel.sh` (нужен новый ID из Platform).
+## What it does
 
-## Исторический протокол Probe
+- **Multiple machines:** select a registered device by its device ID. A gateway agent forwards to trusted peers using SSH with host-key verification.
+- **Projects and files:** list owner-approved workspaces, read files, create new text files, and replace existing text only when its SHA-256 checksum matches.
+- **Commands:** run named commands from a local allowlist. An opt-in advanced mode runs an executable and arguments without a fixed command-name blacklist.
+- **Approvals and audit:** role checks (viewer/operator/admin), one-time local approval for sensitive predefined commands, command timeouts, and an SQLite audit log.
+- **Private ChatGPT integration:** an outbound Secure MCP Tunnel is used instead of opening an inbound port.
 
-Ниже описана исходная проверка совместимости. Это **этап 0**, а не реализация основного агента. Цель: до выбора архитектуры
-проверить собственный неопубликованный MCP в личном ChatGPT Plus, отдельно
-от опубликованных плагинов, API и Codex Work.
+**Current release:** 0.3.1, Linux only, Python 3.11+, MCP SDK 1.29.0. This project is under active development and is not a production-grade multi-user remote-administration service.
 
-## Что уже работает
+## Start here
 
-Linux, Python 3.11+, обычный пользователь. Три MCP-инструмента:
+**[Step-by-step installation and ChatGPT setup →](docs/QUICKSTART.md)**
 
-| Инструмент | Поведение | readOnlyHint |
-|---|---|---|
-| `system_info` | ОС и архитектура без IP, hostname и окружения | true |
-| `list_files` | До 100 имён в закрытом тестовом каталоге | true |
-| `execute_command` | Отдельный процесс: `echo_probe` или `write_probe` с nonce | false |
+The guide covers:
 
-`write_probe` создаёт новый `<nonce>.receipt`, возвращает PID, stdout,
-exit code, SHA-256 и ID операции. Повторная запись и symlink запрещены.
-**Произвольные shell-команды не реализованы:** успешная квитанция доказывает
-вызов инструмента с побочным эффектом и запуск процесса, но не гарантирует
-допуск универсального терминала при публикации или любой будущей команды.
+1. Installing OpenRemote on a Linux computer.
+2. Creating a private configuration and selecting permitted workspaces.
+3. Adding a second computer using SSH or Tailscale (optional).
+4. Creating your own OpenAI Secure MCP Tunnel and running tunnel-client.
+5. Installing your own private custom MCP plugin in ChatGPT.
+6. Checking tools, logs, access controls, and common connection failures.
 
-## Запуск и локальная проверка
+A minimal local installation (read-only by default):
 
-```bash
+~~~bash
+git clone https://github.com/NikDevPy/OpenRemote.git
+cd OpenRemote
 python3 -m venv .venv
 .venv/bin/python -m pip install .
+mkdir -p "$HOME/.config/openremote-agent"
+cp examples/local-agent.example.json "$HOME/.config/openremote-agent/agent.json"
+chmod 600 "$HOME/.config/openremote-agent/agent.json"
+~~~
+
+**Before running the agent**, edit the JSON file: replace YOUR_USER and create the indicated private directories (0700). Then:
+
+~~~bash
+.venv/bin/python -m openremote_agent.server \
+  --config "$HOME/.config/openremote-agent/agent.json" --doctor
+.venv/bin/python -m unittest discover -s tests -q
+~~~
+
+See the [quickstart](docs/QUICKSTART.md) for the remaining steps. Never copy somebody else's real tunnel ID, runtime API key, SSH credentials, or machine addresses into your configuration.
+
+## MCP tools
+
+| Tool | What it does | Access |
+| --- | --- | --- |
+| system_info | OS, architecture, and device ID | viewer |
+| list_devices | Local and configured SSH peers | viewer |
+| list_workspaces | Available file roots and read/write settings | viewer |
+| list_files | List up to 100 entries in a workspace | viewer |
+| read_text | Read UTF-8 text, up to 64 KiB, with SHA-256 | viewer |
+| write_text | Create a new UTF-8 file; never overwrite | operator |
+| replace_text | Replace existing text using expected SHA-256 | operator |
+| preview_command | Inspect a predefined command's policy | viewer |
+| execute_command | Execute a predefined command ID | operator / admin + local approval |
+| run_argv | Opt-in arbitrary executable + arguments | admin + ad_hoc_enabled |
+| audit_tail | Recent local audit events | admin |
+
+The **workspace restriction applies to file tools only**. It does **not** sandbox processes started with run_argv; such processes retain all permissions of their operating-system account. Avoid enabling run_argv unless you understand this distinction. The role in the current version is a server-level role, **not an identity verified independently for each ChatGPT user**.
+
+## Architecture
+
+~~~text
+Your ChatGPT account (private custom MCP plugin)
+                     |
+          OpenAI Secure MCP Tunnel
+          (outbound tunnel-client)
+                     |
+             OpenRemote gateway
+               on your Linux PC
+                     |
+        +------------+-------------+
+        |                          |
+   Local workspaces            SSH / Tailscale
+                                   |
+                            OpenRemote peer
+                              on your server
+~~~
+
+A public **GitHub repository** does not create a public **plugin**. Every person who uses OpenRemote must operate their own server, tunnel, and private ChatGPT connection. Secure MCP Tunnel is for private MCP integrations; public plugin submissions have different HTTPS and authentication requirements.
+
+## Limitations
+
+- Linux-focused; no Windows/macOS native agent or GUI yet.
+- Text file calls are limited to 64 KiB; direct command calls are limited to 60 seconds and 8 KiB per output stream.
+- The OpenAI tunnel has separate request, message-size, and rate limits. This is not an unlimited-throughput connection.
+- Configured SSH peers are reported as configured, not automatically proven online.
+- No per-user OAuth, hard isolation for run_argv, streaming file transfers, or durable PTY/job management yet.
+- No guarantee that custom MCP plugins or Secure MCP Tunnel are enabled in every ChatGPT account/workspace.
+
+## Documentation
+
+- **[QUICKSTART — installation, SSH, tunnel and ChatGPT](docs/QUICKSTART.md)**
+- **[SECURITY — privilege model, approvals, risk and isolation](docs/SECURITY.md)**
+- **[TROUBLESHOOTING — tunnel, SSH, permissions, common errors](docs/TROUBLESHOOTING.md)**
+- [Owner-control technical notes](docs/owner-control.md)
+- [SSH routing design notes](docs/ssh-routing.md)
+- [Historical probe and compatibility research](docs/compatibility.md)
+
+Some older engineering notes in docs/ are in Russian. The three user-facing guides above are in English.
+
+## Development and contributing
+
+~~~bash
 .venv/bin/python -m unittest discover -s tests -v
-.venv/bin/python scripts/local_smoke.py
-.venv/bin/python -m openremote_probe.server --transport stdio --root .probe
-```
+~~~
 
-Последняя команда ожидает MCP на stdin/stdout, а не пользовательский текст.
-Остановить — Ctrl+C. Каталог создаётся с правами 0700. Уже существующий
-каталог с более широкими правами не принимается. Не используйте каталог
-реальных пользовательских файлов. Подтверждённая среда: Linux x86_64,
-Python 3.12.14, MCP SDK 1.29.0; другие ОС не заявлены.
+Please do not submit runtime keys, tunnel IDs from your account, personal SSH hostnames/IP addresses, generated receipts, SQLite state, or private configurations in issues or pull requests.
 
-Для локального HTTP-теста задайте `OPENREMOTE_PROBE_TOKEN` через менеджер
-секретов/окружение (случайное значение минимум 32 символа), затем:
+See the [OpenAI Secure MCP Tunnel documentation](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) and [Add custom MCP server](https://developers.openai.com/api/docs/guides/custom-mcp-server) for the latest service requirements. Platform features and UI labels can change.
 
-```bash
-.venv/bin/python -m openremote_probe.server --transport http --root .probe
-```
+## License
 
-Адрес: `http://127.0.0.1:8765/mcp`. Обязателен HTTP-заголовок
-`Authorization: Bearer <значение из окружения>`. Без него — 401.
-Это локальная аутентификация стенда, **не OAuth для ChatGPT**.
-Не публикуйте этот HTTP-сервер через Funnel/ngrok/Cloudflare в обход OAuth.
-Не отключайте DNS-rebinding-защиту SDK.
-
-## Подключение из ChatGPT Plus
-
-Предпочтительный первый эксперимент — частный **Secure MCP Tunnel → stdio**:
-нет открытого входящего порта, локальный bearer не нужно передавать ChatGPT.
-Понадобятся доступ к Platform tunnel settings, runtime API key и разрешения
-на туннель; наличие подписки Plus само по себе их не подтверждает.
-
-1. В ChatGPT **web** в личном Plus открыть Plugins → `+` → Add custom MCP server.
-   Если пункта нет или есть отказ тарифа, зафиксировать точное сообщение.
-   Для старого интерфейса проверить Settings → Apps → Advanced settings.
-2. В Platform создать частный туннель, связать с нужным ChatGPT workspace
-   и Platform organization. Не делать публичный endpoint ради эксперимента.
-3. Скачать официальный `tunnel-client`, выполнить `tunnel-client help quickstart`.
-   Использовать актуальную документацию, а не неподтверждённый установщик.
-4. Передать runtime key через `CONTROL_PLANE_API_KEY`, не через argv или чат.
-   Пример профиля из официальной документации, с абсолютными путями:
-
-```bash
-tunnel-client init \
-  --sample sample_mcp_stdio_local \
-  --profile openremote-probe \
-  --tunnel-id <реальный-tunnel_id> \
-  --mcp-command '/absolute/OpenRemote/.venv/bin/python -m openremote_probe.server --transport stdio --root /absolute/private-probe'
-tunnel-client doctor --profile openremote-probe --explain
-tunnel-client run --profile openremote-probe
-```
-
-Запускать из установленного проекта. Для stdio сам сервер не реализует OAuth:
-граница доступа — частный tunnel, его привязка к workspace и права Platform.
-Выбор No authentication для локального MCP не делает туннель публичным.
-Доступ к OS-аккаунту и runtime key должен иметь только оператор стенда.
-
-5. В ChatGPT выбрать Connection: Tunnel, нужный tunnel ID, настроить
-   аутентификацию в соответствии с этим частным stdio-стендом, проверить
-   предупреждение и Create as a plugin. Установить получившийся OpenRemote Probe.
-6. В **обычном режиме «Чат»**, новом разговоре, выбрать `@OpenRemote Probe`.
-   Не подменять этот тест успешным вызовом в Work/Codex или Responses API.
-7. Выполнить сценарии из [протокола](docs/acceptance.md).
-
-**Историческое замечание из этапа 0:** в первой проверке туннель ещё не был подключён. Впоследствии OpenRemote Probe подключён и проверен из ChatGPT; см. [runbook](docs/tunnel-runbook.md). Новый Agent подключается отдельно.
-Если он недоступен, следующий вариант — публичный HTTPS endpoint с полноценным
-OAuth через проверенного провайдера. Такой deployment пока не реализован.
-
-## Плагин и распространение
-
-Для личного эксперимента ChatGPT создаёт плагин из MCP-подключения; публикация
-в каталоге не нужна для самого описанного документацией пути подключения.
-Фактическая доступность в Plus остаётся проверяемым условием, не обещанием.
-В `plugins/openremote-probe` подготовлен переносимый манифест и **шаблон**
-удалённого MCP. Это не зарегистрированный и не опубликованный плагин.
-Не устанавливайте шаблон с несуществующим адресом как готовую интеграцию.
-
-Для коллег проверять отдельно: независимую настройку своего MCP каждым Plus,
-получение частного плагина другим Plus, и публичный каталог. Наличие GitHub
-репозитория или ZIP не доказывает поддержку установки в обычном ChatGPT web.
-Публичная публикация требует проверки личности издателя, стабильного HTTPS,
-проверки домена, материалов review и одобрения OpenAI. Универсальный endpoint
-обычно один; template URLs для отдельных устройств ограничены доверенными
-разработчиками. Подробности и источники: [отчёт](docs/compatibility.md).
-
-## Границы стенда
-
-Нет ролей, OAuth provider, произвольного терминала, PTY, брокера, служб,
-автозапуска, установщика или поддержки Windows/macOS. Аудит — до 256 записей
-SQLite в памяти, без аргументов и содержимого; сбрасывается после остановки.
-Доказательства исполнения — локальные receipt-файлы и результат MCP.
-Права подтверждения ChatGPT остаются ответственностью клиента: сервер
-не считает boolean `confirmed=true` доказательством согласия человека.
-
-SDK 1.29.0 использован как установленная воспроизводимая версия для этого
-эксперимента; это не выбор окончательной зависимости. Документация SDK уже
-описывает v2 как stable и v1 как maintenance. Перед основной разработкой
-нужны проверка свежего патча и выбор поддерживаемой версии.
+A public GitHub repository is not automatically open-source licensed. The repository owner must choose and add an explicit license before granting general reuse and redistribution rights.

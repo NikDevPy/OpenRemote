@@ -12,3 +12,12 @@ id.txt
 *.env
 *.secret
 *.sqlite3
+*.pem
+*.key
+*.p12
+*.pfx
+runtime-key
+agent.json
+openremote-agent.yaml
+*.rollback.json
+*.pre-adhoc

@@ -1,0 +1,29 @@
+{
+  "device_id": "my-gateway",
+  "root": "/home/YOUR_USER/.local/share/openremote-agent/sandbox",
+  "state": "/home/YOUR_USER/.local/state/openremote-agent",
+  "role": "viewer",
+  "ad_hoc_enabled": false,
+  "commands": {
+    "python-version": {
+      "argv": ["/usr/bin/python3", "--version"],
+      "timeout": 5,
+      "risk": "standard",
+      "summary": "Read Python version"
+    }
+  },
+  "workspaces": {
+    "projects": {
+      "path": "/home/YOUR_USER/Projects",
+      "access": "read"
+    }
+  },
+  "peers": {
+    "buildbox": {
+      "target": "my-remote",
+      "host_name": "100.64.1.23",
+      "python": "/home/REMOTE_USER/OpenRemote/.venv/bin/python",
+      "config_path": "/home/REMOTE_USER/.config/openremote-agent/agent.json"
+    }
+  }
+}

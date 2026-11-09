@@ -1,0 +1,17 @@
+{
+  "device_id": "my-laptop",
+  "root": "/home/YOUR_USER/.local/share/openremote-agent/sandbox",
+  "state": "/home/YOUR_USER/.local/state/openremote-agent",
+  "role": "viewer",
+  "ad_hoc_enabled": false,
+  "commands": {
+    "python-version": {
+      "argv": ["/usr/bin/python3", "--version"],
+      "timeout": 5,
+      "risk": "standard",
+      "summary": "Read the installed Python version"
+    }
+  },
+  "workspaces": {},
+  "peers": {}
+}

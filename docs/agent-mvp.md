@@ -17,7 +17,7 @@
 В проекте с установленной `.venv`:
 
 ```bash
-cp examples/terra.json ~/.config/openremote-agent.json
+cp examples/local-agent.example.json ~/.config/openremote-agent/agent.json
 chmod 600 ~/.config/openremote-agent.json
 .venv/bin/python -m openremote_agent.server --config ~/.config/openremote-agent.json --doctor
 .venv/bin/python -m openremote_agent.server --config ~/.config/openremote-agent.json --transport stdio

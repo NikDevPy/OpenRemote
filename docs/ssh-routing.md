@@ -1,64 +1,75 @@
-# OpenRemote — SSH/Tailscale routing (v0.2.1)
+# Trusted SSH routing between OpenRemote agents
 
-## Топология, проверенная 9 ноября 2026
+An OpenRemote gateway connects to additional Linux agents through **SSH over stdio**. Tailscale is optional: any trusted network with properly verified SSH host keys can be used.
 
-```text
- ChatGPT (отдельно подключаемый custom MCP)
-             |
-       Secure MCP Tunnel
-             |
- terra: OpenRemote Agent (MCP stdio)
-             |
-    allowlist "rock" → SSH over Tailscale
-             |
- rock: OpenRemote Agent (MCP stdio)
-             |
-    sandbox + локальный allowlist команд
-```
+~~~text
+Your ChatGPT private MCP plugin
+           |
+    Secure MCP Tunnel
+           |
+    OpenRemote gateway (local MCP agent)
+           |
+       SSH/Tailscale
+           |
+    OpenRemote peer (separate policy and workspace)
+~~~
 
-В этой проверке `terra -> rock` работает. Клиент на terra вызывает строго известный адрес SSH peer; хост-ключ предварительно присутствует в `~/.ssh/known_hosts`. Запросы MCP не подставляются в командную строку SSH, а идут JSON-RPC по stdio. На rock нет постоянно открытого входящего MCP-порта — каждый вызов создаёт короткую SSH-сессию. Серверы rock и terra работают без sudo.
+Every peer must be explicitly registered by the gateway owner. The gateway refuses arbitrary target device IDs, and does not accept SSH hostnames or remote shell code from MCP tool arguments.
 
-### Конфигурация для peer
+## 1. Prepare the remote agent
 
-`Config.peers` — закрытый локальный реестр. Пример (значения адаптировать; настоящий Tailnet IP не коммитить):
+Install OpenRemote on each remote Linux machine following [QUICKSTART](QUICKSTART.md). The remote machine must have a unique device_id, its own absolute Python/config paths and permissions, and its own workspace and role settings.
 
-```json
+A peer agent need not expose any public HTTP port: the gateway launches the remote agent over SSH and uses its stdio MCP interface.
+
+## 2. Confirm trusted SSH access
+
+From the gateway's operating-system user, configure your own SSH alias, user and identity. For example, in ~/.ssh/config (replace all placeholders):
+
+~~~sshconfig
+Host my-remote
+    HostName 100.64.1.23
+    User REMOTE_USER
+    IdentityFile ~/.ssh/id_ed25519
+    IdentitiesOnly yes
+    StrictHostKeyChecking yes
+    BatchMode yes
+~~~
+
+This address is a **placeholder**; replace it with the peer's actual Tailscale/private address. Verify the host key through a trusted out-of-band method before accepting it.
+
+~~~bash
+ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes my-remote 'hostname'
+~~~
+
+The gateway uses noninteractive SSH and disables forwarding and agent forwarding. If SSH asks for a password or rejects a host key, repair the trust configuration rather than disabling security checks.
+
+## 3. Add the peer to your gateway's private agent.json
+
+~~~json
 {
-  "device_id": "terra",
-  "root": "/home/domenus/.local/share/openremote-agent/sandbox",
-  "state": "/home/domenus/.local/state/openremote-agent",
-  "role": "operator",
-  "commands": {},
   "peers": {
-    "rock": {
-      "target": "nora-rock-admin",
-      "host_name": "100.64.0.1",
-      "python": "/home/nora-admin/Projects/OpenRemote-agent/.venv/bin/python",
-      "config_path": "/home/nora-admin/Projects/OpenRemote-agent/rock.json"
+    "buildbox": {
+      "target": "my-remote",
+      "host_name": "100.64.1.23",
+      "python": "/home/REMOTE_USER/OpenRemote/.venv/bin/python",
+      "config_path": "/home/REMOTE_USER/.config/openremote-agent/agent.json"
     }
   }
 }
-```
+~~~
 
-Это только иллюстрация структуры. `host_name` должен быть реальным Tailscale-адресом, `target` — заранее проверенный SSH-алиас. Проверка ключа хоста (`StrictHostKeyChecking=yes`) обязательна. Сервер выполняет только `python -m openremote_agent.server --config <remote-config>`. Внешний MCP-запрос не может заменить команду или hostname. Отказ SSH не инициирует обход через публичную сеть.
+Merge this section into the gateway configuration; it is not a complete agent.json. The key buildbox must match the remote agent's device_id. The gateway's target alias and host_name must identify the same verified machine; the remote Python and config must be absolute paths.
 
-Удалённый конфиг должен идентифицировать себя как `rock`, содержать отдельные `root` и `state` (mode 0700), `role` и локальный список разрешённых команд. Он не доверяет роли terra автоматически: каждую операцию проверяет собственный Agent. Terra отдельно проверяет роль и белый список peer. На нынешнем MVP роль единая для экземпляра сервера, **не на пользователя/подключение**.
+Run --doctor on the gateway and remote. Confirm that each SSH hop launches the correct agent account. ChatGPT can request list_devices on the gateway and system_info(device_id="buildbox") once the private plugin is connected.
 
-### Функции и подтверждённые ограничения
+## Authorization and limitations
 
-- `list_devices`: показывает terra online и настроенных peer со статусом `configured`; **не выдаёт configured за online**.
-- `system_info(device_id)`, `list_files(path,device_id)`, `read_text`, `write_text`, `execute_command`, `audit_tail`: маршрутизируются локально или через SSH. Неизвестный `device_id` отклоняется.
-- SSH отключает форвардинг, agent forwarding, интерактивный запрос пароля; требует проверенный host key. 5 с на соединение, общий таймаут обмена 75 с.
-- Удалённый файловый sandbox: path traversal и symlink запрещены; файлы до 64 КиБ; overwrite запрещён.
-- `execute_command`: только локальный allowlist, без пользовательских argv или shell; stdout/stderr до 8 КиБ, таймаут одной команды не более 60 с.
-- Аудит обеих машин сохраняется в отдельной SQLite без аргументов, содержимого и stdout.
-- Реальный smoke: обнаружение terra/rock, информация rock Linux aarch64, `python-version` с кодом 0, create→read→list файла, отказ `../rock.json` и неизвестному устройству, локальный terra продолжает работать.
-- Для новых устройств нужно предварительно установить агента, выдать доступ в Tailnet, проверить SSH host key и вручную добавить peer. Автоматического enrollment, push файлов и multi-user OAuth пока нет.
+- A peer registered in the config is reported as **configured**, not guaranteed online.
+- The gateway enforces its local permission to use the tool; the peer separately enforces its own role, workspace permissions and command policy.
+- MCP tool arguments never become the SSH hostname or SSH program invocation.
+- A failed private SSH connection must not be silently rerouted through an unapproved public endpoint.
+- Per-call SSH sessions are currently established on demand. Heartbeats, automatic enrollment, long-running remote PTY sessions and automatic reconnect are not yet provided.
+- Sensitive credentials, real Tailscale IPs, hostnames and private config files must never be committed to this repository.
 
-Запуск реального smoke (запись только в выделенный sandbox на rock):
-
-```bash
-.venv/bin/python scripts/live_ssh_smoke.py
-```
-
-Не запускайте smoke в продакшен-системах без конфигурации, описывающей отдельный тестовый sandbox.
+See [SECURITY](SECURITY.md) and [TROUBLESHOOTING](TROUBLESHOOTING.md) for important limitations and failure recovery.
