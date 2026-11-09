@@ -7,6 +7,7 @@ arguments, process stdout or binary payloads are rendered by the UI.
 from __future__ import annotations
 
 import argparse
+import socket
 from datetime import datetime
 from pathlib import Path
 import sys
@@ -825,10 +826,40 @@ def _single_instance(name):
     return server, lock
 
 
+
+def discover_config(explicit: Path | None = None,
+                    home: Path | None = None,
+                    host: str | None = None) -> Path:
+    """Reuse an existing authorized device config before starting onboarding.
+
+    No file writes. With multiple configs, prefer the current hostname
+    rather than accidentally using old test or rollback configurations.
+    """
+    if explicit is not None:
+        return Path(explicit).expanduser().absolute()
+    base = (home or Path.home()) / ".config" / "openremote-agent"
+    default = base / "agent.json"
+    if default.is_file() and not default.is_symlink():
+        return default
+    local_name = host or socket.gethostname()
+    local_name = local_name.split(".", 1)[0]
+    named = base / (local_name + ".json")
+    if named.is_file() and not named.is_symlink():
+        return named
+    candidates = [
+        x for x in base.glob("*.json")
+        if x.name != default.name and not x.is_symlink()
+        and "-test" not in x.stem and "-v0." not in x.stem
+        and "rollback" not in x.stem
+    ]
+    if len(candidates) == 1:
+        return candidates[0]
+    return default
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="OpenRemote Control Center (optional GUI)")
-    parser.add_argument("--config", type=Path,
-                        default=Path.home() / ".config/openremote-agent/agent.json")
+    parser.add_argument("--config", type=Path, default=None,
+                        help="Private agent config (auto-detects hostname.json when omitted)")
     parser.add_argument("--health-url", default="http://127.0.0.1:18767/readyz")
     parser.add_argument("--screenshot", type=Path, default=None,
                         help="Offscreen UI screenshot and exit")
@@ -843,6 +874,7 @@ def main(argv=None):
                         help="Offscreen setup-wizard screenshot and exit")
     parser.add_argument("--wizard-step", type=int, choices=range(6), default=0)
     args = parser.parse_args(argv)
+    args.config = discover_config(args.config)
     app = QApplication(sys.argv[:1])
     app.setApplicationName("OpenRemote")
     app.setDesktopFileName("openremote-control-center")

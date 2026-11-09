@@ -143,3 +143,29 @@ A Windows installer will require Windows-native filesystem/process/permission
 handling and integration tests, not just bundling the current Linux agent
 into an executable. Do not publish or label a Windows/macOS installer as
 working until those tests pass.
+
+## Reusing an existing authorized agent after an update
+
+OpenRemote discovers \`~/.config/openremote-agent/agent.json\` first, then
+a config named after the computer's hostname (for example \`terra.json\`).
+The dashboard opens immediately when such a configuration exists, so you
+**do not need to register again, create a new tunnel, or enter the API key**.
+The GUI is independent of the existing \`systemd --user\` tunnel.
+
+An explicit \`--config PATH\` always overrides discovery.
+
+### Linux troubleshooting
+
+If the desktop menu opens an outdated version, check whether your home
+directory contains an older \`~/.local/share/applications/openremote-control-center.desktop\`
+file. User desktop entries override matching system-wide entries. Remove or
+update the older entry after backing it up; restarting the tunnel service
+is not necessary. When system package privileges are not available,
+the \`.deb\` can also be extracted into an owner-only home directory and
+launched with \`OPENREMOTE_ASSET_ROOT\` pointing to the extracted wheel.
+This installs the GUI **for that user only**; it is not the same as a
+system-wide \`dpkg\` installation.
+
+The 0.6.1 preview fixes a fixed-width illustration that caused the
+Russian “SECURE TUNNEL” label to overflow. The labels are now measured
+before painting, tested at several window sizes in both languages.

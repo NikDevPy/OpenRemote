@@ -12,7 +12,7 @@ import shutil
 import socket
 import sys
 
-from PySide6.QtCore import Qt, QTimer, QObject, Signal, QRunnable, QThreadPool, QUrl
+from PySide6.QtCore import Qt, QRectF, QTimer, QObject, Signal, QRunnable, QThreadPool, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QPainter, QPen, QBrush, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
@@ -143,38 +143,68 @@ assert set(COPY["ru"]) == set(COPY["en"])
 
 
 class Diagram(QWidget):
-    """Native vector infographic; no web requests or asset downloads."""
+    """Scale-aware diagram with all labels constrained within their cards."""
+
     def __init__(self, parent=None, active=1):
         super().__init__(parent)
         self.active = active
-        self.setMinimumHeight(190)
-        self.setMaximumHeight(230)
+        self.setMinimumHeight(188)
+        self.setMaximumHeight(220)
         self.language = "ru"
+        self.setAccessibleName("OpenRemote: computer, secure tunnel, ChatGPT")
+
+    def geometry_for(self, width: float):
+        """Return three non-overlapping node rectangles and connector segments."""
+        w = max(float(width), 550.0)
+        mid_width = min(192.0, max(170.0, w * .235))
+        end_width = min(150.0, max(116.0, w * .19))
+        centers = (w * .16, w * .5, w * .84)
+        box_height = 108.0
+        y = (self.height() - box_height) / 2.0
+        boxes = [
+            QRectF(centers[0] - end_width/2, y, end_width, box_height),
+            QRectF(centers[1] - mid_width/2, y - 5, mid_width, box_height + 10),
+            QRectF(centers[2] - end_width/2, y, end_width, box_height),
+        ]
+        return boxes
+
+    def font_for_label(self, label: str, available_width: float, painter: QPainter):
+        font = QFont(painter.font())
+        font.setWeight(QFont.Weight.DemiBold)
+        # Text is measured, never blindly painted outside its rounded card.
+        for size in range(15, 9, -1):
+            font.setPixelSize(size)
+            from PySide6.QtGui import QFontMetrics
+            metrics = QFontMetrics(font)
+            if all(metrics.horizontalAdvance(line) <= available_width
+                   for line in label.splitlines()):
+                return font
+        font.setPixelSize(10)
+        return font
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        width = self.width()
-        cy = self.height() // 2
-        centers = (int(width * .18), int(width * .50), int(width * .82))
-        painter.setPen(QPen(QColor("#C9C4ED"), 3, Qt.PenStyle.DashLine))
-        painter.drawLine(centers[0] + 58, cy, centers[1] - 59, cy)
-        painter.drawLine(centers[1] + 58, cy, centers[2] - 59, cy)
-        captions = [COPY[self.language][n] for n in
+        boxes = self.geometry_for(self.width())
+        cy = float(self.height()) / 2
+        painter.setPen(QPen(QColor("#C9C4ED"), 2, Qt.PenStyle.DashLine))
+        painter.drawLine(int(boxes[0].right() + 10), int(cy),
+                         int(boxes[1].left() - 10), int(cy))
+        painter.drawLine(int(boxes[1].right() + 10), int(cy),
+                         int(boxes[2].left() - 10), int(cy))
+        captions = [COPY[self.language][key] for key in
                     ("diagram_device", "diagram_cloud", "diagram_chat")]
-        for i, cx in enumerate(centers):
-            size = 110 if i == 1 else 98
-            color = QColor("#7D72EF") if i == self.active else QColor("#EFECFD")
+        for i, rect in enumerate(boxes):
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(color))
-            painter.drawRoundedRect(cx - size // 2, cy - size // 2, size, size, 27, 27)
-            painter.setPen(QColor("#FFFFFF" if i == self.active else "#514C9A"))
-            f = painter.font()
-            f.setPixelSize(14)
-            f.setWeight(QFont.Weight.Bold)
-            painter.setFont(f)
-            painter.drawText(cx-size//2, cy-size//2, size, size,
-                             Qt.AlignmentFlag.AlignCenter, captions[i])
+            painter.setBrush(QBrush(QColor("#756AE7") if i == self.active
+                                   else QColor("#EEEAFB")))
+            painter.drawRoundedRect(rect, 24, 24)
+            color = QColor("#FFFFFF" if i == self.active else "#4F478F")
+            painter.setPen(QPen(color))
+            text_rect = rect.adjusted(12, 8, -12, -8)
+            painter.setFont(self.font_for_label(captions[i], text_rect.width(), painter))
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter,
+                             captions[i])
         painter.end()
 
 

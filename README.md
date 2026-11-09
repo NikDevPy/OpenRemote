@@ -16,7 +16,7 @@
 - **Parallel chats:** SQLite WAL, per-target file locks, bounded OS command slots, and optional task labels/idempotency keys prevent common conflicts between independent conversations.
 - **Optional Linux desktop GUI:** a minimal dashboard with device checks, jobs, transfers, light/dark appearance, and minimize-to-tray on supported desktops.
 
-**Current development version:** 0.6.0, Linux only, Python 3.11+, MCP SDK 1.29.0. This project is under active development and is not a production-grade multi-user remote-administration service.
+**Current development version:** 0.6.1, Linux only, Python 3.11+, MCP SDK 1.29.0. This project is under active development and is not a production-grade multi-user remote-administration service.
 
 ## Install and connect in six steps — Linux .deb preview
 
@@ -43,6 +43,14 @@ available or verified** yet.
 
 Read [first-run onboarding and Debian package details](docs/ONBOARDING.md)
 for requirements, screenshots, security boundaries and recovery.
+
+**Existing installations** automatically prefer a valid user-owned
+\`~/.config/openremote-agent/agent.json\`, then a hostname-matched
+\`<device>.json\` (such as \`terra.json\` on terra). In that case the GUI
+opens the dashboard and **does not run first-time tunnel onboarding again**.
+The existing runtime key, tunnel profile and user service are left unchanged.
+No root access is required for a user-scoped launcher extracted from the Debian
+package, though a true system \`dpkg\` installation requires administrator rights.
 
 ## Optional desktop Control Center
 

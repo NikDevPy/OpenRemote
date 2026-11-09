@@ -5,7 +5,7 @@ GUI preview**. This is not yet a maintained native Windows/macOS application.
 Qt offscreen rendering has been tested; real system-tray integration must
 also be verified on an actual graphical desktop.
 
-## Compatibility matrix for v0.6.0
+## Compatibility matrix for v0.6.1
 
 | OS | Architecture | Status | Evidence |
 | --- | --- | --- | --- |
@@ -56,4 +56,4 @@ and tests on actual Intel/Apple Silicon machines.
 If experimental packages are ever uploaded, label them explicitly as
 Not tested / Experimental / No support guarantee, not as verified releases.
 
-See [v0.6.0 preview notes](releases/v0.6.0.md), [v0.5.0 development notes](releases/v0.5.0.md), [v0.4.0 notes](releases/v0.4.0.md) and the earlier [v0.3.1 draft](releases/v0.3.1.md).
+See [v0.6.1 hotfix notes](releases/v0.6.1.md), [v0.6.0 preview notes](releases/v0.6.0.md), [v0.5.0 development notes](releases/v0.5.0.md), [v0.4.0 notes](releases/v0.4.0.md) and the earlier [v0.3.1 draft](releases/v0.3.1.md).
