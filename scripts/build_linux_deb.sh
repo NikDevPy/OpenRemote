@@ -63,7 +63,7 @@ Section: net
 Priority: optional
 Architecture: amd64
 Maintainer: NikDevPy <opensource@users.noreply.github.com>
-Depends: python3 (>= 3.11), python3-venv, python3-pip, util-linux, ca-certificates
+Depends: python3 (>= 3.11), python3-venv, python3-pip, util-linux, ca-certificates, libegl1, libopengl0
 Recommends: zenity
 Description: OpenRemote private ChatGPT connection setup (Linux preview)
  An optional desktop/tray UI and first-run wizard that helps owners create

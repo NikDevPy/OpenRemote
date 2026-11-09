@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 dependencies = ["mcp==1.29.0", "uvicorn>=0.35,<1"]
 
 [project.optional-dependencies]
-gui = ["PySide6>=6.9,<7"]
+gui = ["PySide6-Essentials>=6.9,<7"]
 
 [project.scripts]
 openremote-probe = "openremote_probe.server:main"

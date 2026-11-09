@@ -35,7 +35,7 @@ downloads Python/Qt dependencies from PyPI and installs them into a private,
 versioned user virtual environment. Internet access is required. The
 package does not run \`pip\` as root and does not download anything in
 Debian's \`postinst\` script. On the Linux test system this first-run
-environment used approximately **729 MiB** of local disk space. A later
+environment used approximately **302 MiB** of local disk space. A later
 fully bundled installer could reduce setup friction, but would need
 separate OS/architecture compatibility testing.
 

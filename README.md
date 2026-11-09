@@ -37,7 +37,7 @@ does not overwrite existing agent/tunnel configurations.
 **Linux preview limitation:** the small `.deb` installs a desktop launcher
 and wheel, then downloads Python/Qt dependencies from PyPI at **first launch**.
 It is not an offline or fully bundled installer; the tested user environment
-used about **729 MiB**. The official OpenAI tunnel-client must be downloaded
+used about **302 MiB**. The official OpenAI tunnel-client must be downloaded
 separately. Windows `.exe` installers and Windows/macOS agents are **not
 available or verified** yet.
 
