@@ -3,9 +3,9 @@
 **Состояние на 9 ноября 2026:** созданы две отдельные реализации.
 
 - **OpenRemote Probe** — старый тестовый сервер из трёх инструментов, подключён к `@OpenRemote test` через Secure MCP Tunnel на terra; реальные чтение и запись из ChatGPT проверены.
-- **OpenRemote Agent (v0.1)** — новый MCP с семью инструментами, sandbox/allowlist/audit/RBAC уровня экземпляра и SSH-маршрутом `terra → rock` через Tailscale. Реальный сквозной smoke успешен, но **этот Agent пока не подключён к ChatGPT-плагину**.
+- **OpenRemote Agent (v0.2.1)** — новый MCP с восемью инструментами, sandbox/allowlist/audit/RBAC уровня экземпляра и SSH-маршрутом `terra → rock` через Tailscale. Реальный сквозной smoke успешен, но **этот Agent пока не подключён к ChatGPT-плагину**.
 
-Документы: [агент](docs/agent-mvp.md), [SSH routing](docs/ssh-routing.md), [туннель и автозапуск](docs/tunnel-runbook.md).
+Документы: [агент](docs/agent-mvp.md), [SSH routing](docs/ssh-routing.md), [туннель и автозапуск](docs/tunnel-runbook.md), [командные политики и локальные подтверждения](docs/command-policies.md), [сравнение с RDC и roadmap](docs/rdc-gap-analysis.md).
 
 ## Исторический протокол Probe
 

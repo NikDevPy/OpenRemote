@@ -1,4 +1,4 @@
-# OpenRemote — SSH/Tailscale routing (v0.1)
+# OpenRemote — SSH/Tailscale routing (v0.2.1)
 
 ## Топология, проверенная 9 ноября 2026
 

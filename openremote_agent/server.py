@@ -6,6 +6,8 @@ import hashlib
 import hmac
 import json
 import os
+import shlex
+import time
 from pathlib import Path
 import sys
 from typing import TypedDict
@@ -36,6 +38,17 @@ class WriteResult(TypedDict):
     created: bool
     size: int
     operation_id: str
+
+class CommandPreviewResult(TypedDict):
+    command_id: str
+    summary: str
+    risk: str
+    required_role: str
+    requires_local_approval: bool
+    approval_pending: bool
+    timeout_seconds: float
+    operation_id: str
+
 
 class CommandResult(TypedDict):
     exit_code: int
@@ -73,12 +86,15 @@ class Server:
         )
         read = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
         write = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
+        # Назначение команды задаётся локальной политикой и может быть необратимым.
+        command_write = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True)
         self.mcp.tool(annotations=read)(self.system_info)
         self.mcp.tool(annotations=read)(self.list_devices)
         self.mcp.tool(annotations=read)(self.list_files)
         self.mcp.tool(annotations=read)(self.read_text)
         self.mcp.tool(annotations=write)(self.write_text)
-        self.mcp.tool(annotations=write)(self.execute_command)
+        self.mcp.tool(annotations=read)(self.preview_command)
+        self.mcp.tool(annotations=command_write)(self.execute_command)
         self.mcp.tool(annotations=read)(self.audit_tail)
 
     async def system_info(self, device_id: str | None = None) -> InfoResult:
@@ -101,8 +117,12 @@ class Server:
         """Создай новый файл в sandbox выбранного устройства. Нужна operator, перезапись запрещена."""
         return await self.router.call("write_text", {"path": path, "content": content}, device_id)
 
+    async def preview_command(self, command_id: str, device_id: str | None = None) -> CommandPreviewResult:
+        """Проверь заранее разрешённую команду, её уровень риска и необходимость локального допуска, не запуская её."""
+        return await self.router.call("preview_command", {"command_id": command_id}, device_id)
+
     async def execute_command(self, command_id: str, device_id: str | None = None) -> CommandResult:
-        """Выполни только команду из allowlist выбранного устройства, без shell/argv пользователя. Нужна operator."""
+        """Запусти именованную команду из политики выбранного устройства. Может менять систему; privileged требует admin и локального одноразового допуска. Без пользовательских argv или shell."""
         return await self.router.call("execute_command", {"command_id": command_id}, device_id)
 
     async def audit_tail(self, limit: int = 20, device_id: str | None = None) -> AuditResult:
@@ -143,12 +163,34 @@ def main() -> None:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--transport", choices=("stdio", "http"), default="stdio")
     parser.add_argument("--doctor", action="store_true")
+    parser.add_argument("--approve-command", metavar="COMMAND_ID", default=None,
+                        help="Локальное одноразовое разрешение привилегированной команды")
+    parser.add_argument("--approve-ttl", type=int, default=120,
+                        help="Срок локального разрешения в секундах, максимум 300")
     args = parser.parse_args()
     if sys.platform != "linux" or os.geteuid() == 0:
         parser.error("Linux MVP работает от обычного пользователя, не root")
     config = load_config(args.config)
     agent = Agent(config)
     try:
+        if args.approve_command is not None:
+            command = config.commands.get(args.approve_command)
+            if command is None or command.risk != "privileged" or config.role != "admin":
+                parser.error("Разрешить можно только команду risk=privileged при роли admin")
+            if not 1 <= args.approve_ttl <= 300:
+                parser.error("Срок разрешения должен быть от 1 до 300 секунд")
+            if not (sys.stdin.isatty() and sys.stdout.isatty()):
+                parser.error("Подтверждение допускается только в интерактивном локальном терминале")
+            print(f"DEVICE: {config.device_id}; COMMAND: {args.approve_command}; RISK: privileged")
+            print(f"Действие: {command.summary or 'Команда из локального конфига'}")
+            print("Точная команда из локальной политики:", shlex.join(command.argv))
+            phrase = f"APPROVE {args.approve_command}"
+            if input(f"Введите {phrase}: ").strip() != phrase:
+                parser.error("Разрешение не предоставлено")
+            agent.audit.grant_command(args.approve_command, agent.command_digest(args.approve_command), args.approve_ttl)
+            agent.audit.record("command_approval", "local_approved", time.monotonic())
+            print("Разовое разрешение записано в локальную базу. Его можно использовать один раз.")
+            return
         if args.doctor:
             print(json.dumps({
                 "device_id": config.device_id, "role": config.role,

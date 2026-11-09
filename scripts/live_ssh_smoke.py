@@ -5,6 +5,7 @@ Requires local private configuration with one peer called rock.
 """
 import asyncio
 import json
+import os
 from pathlib import Path
 import secrets
 import sys
@@ -14,7 +15,9 @@ from mcp.client.stdio import stdio_client
 
 
 async def main() -> None:
-    config = Path.home() / ".config/openremote-agent/terra.json"
+    config = Path(os.environ.get(
+        "OPENREMOTE_SMOKE_CONFIG", str(Path.home() / ".config/openremote-agent/terra.json")
+    ))
     if not config.is_file():
         raise SystemExit("Private terra config not installed; no live test performed")
     params = StdioServerParameters(
@@ -39,6 +42,10 @@ async def main() -> None:
             rock = await call("system_info", device_id="rock")
             assert rock["device_id"] == "rock" and rock["os"] == "Linux", rock
             results["rock_system_info"] = {"os": rock["os"], "machine": rock["machine"]}
+
+            policy = await call("preview_command", device_id="rock", command_id="python-version")
+            assert policy["risk"] == "standard" and policy["requires_local_approval"] is False, policy
+            results["rock_policy_preview"] = "standard"
 
             command = await call("execute_command", device_id="rock", command_id="python-version")
             assert command["exit_code"] == 0 and "Python" in command["stdout"], command

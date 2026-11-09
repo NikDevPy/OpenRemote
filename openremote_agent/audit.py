@@ -28,7 +28,45 @@ class Audit:
             "id TEXT PRIMARY KEY, ts INTEGER NOT NULL, tool TEXT NOT NULL,"
             "result TEXT NOT NULL, duration_ms REAL NOT NULL)"
         )
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS command_approvals ("
+            "command_id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, command_digest TEXT NOT NULL DEFAULT '')"
+        )
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(command_approvals)")}
+        if "command_digest" not in columns:
+            # Старые разрешения становятся недействительными после обновления.
+            self.db.execute("ALTER TABLE command_approvals ADD COLUMN command_digest TEXT NOT NULL DEFAULT ''")
         self.db.commit()
+
+    def grant_command(self, command_id: str, command_digest: str, ttl: int = 120) -> None:
+        """Локальное разовое разрешение. Не открывать как MCP-инструмент."""
+        if not (1 <= ttl <= 300):
+            raise ValueError("Срок разрешения: 1–300 секунд")
+        if len(command_digest) != 64 or any(c not in "0123456789abcdef" for c in command_digest):
+            raise ValueError("Требуется SHA-256 отпечаток точной команды")
+        with self.db:
+            self.db.execute(
+                "INSERT INTO command_approvals(command_id,expires_at,command_digest) VALUES(?,?,?) "
+                "ON CONFLICT(command_id) DO UPDATE SET "
+                "expires_at=excluded.expires_at,command_digest=excluded.command_digest",
+                (command_id, int(time.time()) + ttl, command_digest),
+            )
+
+    def command_approved(self, command_id: str, command_digest: str) -> bool:
+        record = self.db.execute(
+            "SELECT 1 FROM command_approvals WHERE command_id=? AND command_digest=? AND expires_at>?",
+            (command_id, command_digest, int(time.time())),
+        ).fetchone()
+        return record is not None
+
+    def consume_command(self, command_id: str, command_digest: str) -> bool:
+        """Атомарно погасить разрешение только для одобренной точной команды."""
+        with self.db:
+            cursor = self.db.execute(
+                "DELETE FROM command_approvals WHERE command_id=? AND command_digest=? AND expires_at>?",
+                (command_id, command_digest, int(time.time())),
+            )
+        return cursor.rowcount == 1
 
     def record(self, tool: str, result: str, started: float) -> str:
         operation_id = str(uuid.uuid4())

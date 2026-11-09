@@ -19,6 +19,7 @@ REQUIRED_ROLES = {
     "read_text": "viewer",
     "write_text": "operator",
     "execute_command": "operator",
+    "preview_command": "viewer",
     "audit_tail": "admin",
 }
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -12,19 +13,41 @@ DEVICE_RE = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}\Z")
 SSH_TARGET_RE = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.@-]{0,199}\Z")
 SSH_HOST_RE = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}\Z")
 
+# Не наследуем список запретов RDC: привилегированные исполняемые файлы
+# допускаются лишь в явной политике администратора и с локальным разрешением.
+SENSITIVE_BINARIES = {
+    "sudo", "su", "doas", "pkexec", "mount", "umount", "dd",
+    "fdisk", "parted", "diskpart", "iptables", "ip6tables", "nft",
+    "reboot", "shutdown", "halt", "poweroff", "passwd", "usermod",
+    "useradd", "adduser", "groupadd", "chsh", "visudo", "systemctl",
+    "service", "mkfs", "sh", "bash", "dash", "zsh", "fish", "env",
+}
+
+
 
 @dataclass(frozen=True)
 class CommandSpec:
     argv: tuple[str, ...]
     timeout: float = 10.0
+    risk: str = "standard"
+    summary: str = ""
 
     def __post_init__(self) -> None:
         if not self.argv or not os.path.isabs(self.argv[0]):
             raise ValueError("Команда должна содержать абсолютный путь исполняемого файла")
         if len(self.argv) > 32 or sum(len(a) for a in self.argv) > 4096:
             raise ValueError("Превышен лимит аргументов")
-        if self.timeout < 0.2 or self.timeout > 60:
+        if not math.isfinite(self.timeout) or self.timeout < 0.2 or self.timeout > 60:
             raise ValueError("Таймаут допускается от 0.2 до 60 секунд")
+        if self.risk not in {"standard", "privileged"}:
+            raise ValueError("risk: standard или privileged")
+        if not isinstance(self.summary, str) or len(self.summary) > 300:
+            raise ValueError("Описание команды слишком длинное")
+        if os.path.basename(self.argv[0]) in SENSITIVE_BINARIES or os.path.basename(self.argv[0]).startswith("mkfs."):
+            if self.risk != "privileged":
+                raise ValueError("Системная команда допускается только с risk=privileged")
+        if os.path.basename(self.argv[0]) == "sudo" and "-n" not in self.argv[1:]:
+            raise ValueError("sudo должен использовать -n и отдельное ограниченное правило sudoers")
         if any("\x00" in arg for arg in self.argv):
             raise ValueError("NUL в аргументах недопустим")
 
@@ -85,12 +108,15 @@ def load_config(path: Path) -> Config:
         raise ValueError("commands должен быть объектом")
     commands = {}
     for name, entry in entries.items():
-        if not isinstance(entry, dict) or set(entry) - {"argv", "timeout"}:
+        if not isinstance(entry, dict) or set(entry) - {"argv", "timeout", "risk", "summary"}:
             raise ValueError(f"Некорректная команда: {name}")
         argv = entry.get("argv")
         if not isinstance(argv, list) or not all(isinstance(arg, str) for arg in argv):
             raise ValueError(f"Некорректные argv: {name}")
-        commands[name] = CommandSpec(tuple(argv), float(entry.get("timeout", 10)))
+        commands[name] = CommandSpec(
+            tuple(argv), float(entry.get("timeout", 10)),
+            risk=entry.get("risk", "standard"), summary=entry.get("summary", ""),
+        )
     entries = data.get("peers", {})
     if not isinstance(entries, dict):
         raise ValueError("peers должен быть объектом")

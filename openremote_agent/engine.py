@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import os
 import platform
 import signal
@@ -28,6 +30,19 @@ class Agent:
     def close(self) -> None:
         self.audit.close()
         self.files.close()
+
+    def command_digest(self, command_id: str) -> str:
+        """Привязать локальное разрешение к узлу, каталогу и точному argv."""
+        command = self.config.commands[command_id]
+        payload = {
+            "device": self.config.device_id,
+            "sandbox": str(self.files.root),
+            "argv": list(command.argv),
+            "timeout": command.timeout,
+            "risk": command.risk,
+        }
+        normalized = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return hashlib.sha256(normalized.encode()).hexdigest()
 
     def _guard(self, operation: str, min_role: str, device_id: str | None) -> float:
         started = time.monotonic()
@@ -82,6 +97,25 @@ class Agent:
         result["operation_id"] = self.audit.record("write_text", "ok", started)
         return result
 
+    def preview_command(self, command_id: str, device_id: str | None = None) -> dict:
+        """Вернуть описание политики без запуска и без раскрытия argv."""
+        started = self._guard("preview_command", "viewer", device_id)
+        command = self.config.commands.get(command_id)
+        if command is None:
+            self.audit.record("preview_command", "denied", started)
+            raise ValueError("Команда отсутствует в списке разрешённых")
+        info = {
+            "command_id": command_id,
+            "summary": command.summary or f"Администратор разрешил команду {command_id}",
+            "risk": command.risk,
+            "required_role": "admin" if command.risk == "privileged" else "operator",
+            "requires_local_approval": command.risk == "privileged",
+            "approval_pending": self.audit.command_approved(command_id, self.command_digest(command_id)) if command.risk == "privileged" else False,
+            "timeout_seconds": command.timeout,
+        }
+        info["operation_id"] = self.audit.record("preview_command", "ok", started)
+        return info
+
     def audit_tail(self, limit: int = 20) -> dict:
         started = self._guard("audit_tail", "admin", None)
         entries = self.audit.tail(limit)
@@ -94,10 +128,17 @@ class Agent:
         if command is None:
             self.audit.record("execute_command", "denied", started)
             raise ValueError("Команда отсутствует в локальном списке разрешённых")
+        if command.risk == "privileged" and ROLES[self.config.role] < ROLES["admin"]:
+            self.audit.record("execute_command", "forbidden", started)
+            raise PermissionError("Привилегированная команда требует роли admin")
         async with self._executions:
+            if command.risk == "privileged" and not self.audit.consume_command(command_id, self.command_digest(command_id)):
+                self.audit.record("execute_command", "approval_required", started)
+                raise PermissionError("Нужно разовое разрешение владельца на устройстве. Используйте локальный --approve-command")
             try:
                 proc = await asyncio.create_subprocess_exec(
                     *command.argv, cwd=str(self.files.root),
+                    stdin=asyncio.subprocess.DEVNULL,
                     env={"LANG": "C.UTF-8", "PATH": "/usr/bin:/bin"},
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
                     start_new_session=True,

@@ -1,10 +1,10 @@
-# OpenRemote Agent 0.1 — защищённый MVP
+# OpenRemote Agent 0.2.1 — защищённый MVP
 
 Новая реализация в ветке `feature/secure-agent-mvp`. Старый `openremote_probe` не изменён. Это **отдельный локальный агент**, а не уже работающий универсальный плагин на нескольких компьютерах.
 
 ## Возможности
 
-- MCP инструменты: `system_info`, `list_devices`, `list_files`, `read_text`, `write_text`, `execute_command`, `audit_tail`.
+- MCP инструменты: `system_info`, `list_devices`, `list_files`, `read_text`, `write_text`, `preview_command`, `execute_command`, `audit_tail`. Политики standard/privileged, локальное разрешение и SHA-256 привязка описаны в [командных политиках](command-policies.md).
 - Read: каталоги/текст не более 64 КиБ внутри ограниченного sandbox без перехода через symlink.
 - Write: только создание новых файлов (без overwrite), требует operator.
 - Command: **только команды из локального allowlist**, без shell-парсинга, с таймаутом, отсечением вывода и отдельной группой процесса.
