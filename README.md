@@ -120,4 +120,8 @@ See the [OpenAI Secure MCP Tunnel documentation](https://developers.openai.com/a
 
 ## License
 
-A public GitHub repository is not automatically open-source licensed. The repository owner must choose and add an explicit license before granting general reuse and redistribution rights.
+OpenRemote is licensed under the [MIT License](LICENSE). Copyright (c) 2026 NikDevPy.
+
+## Releases and compatibility
+
+See [RELEASES](docs/RELEASES.md) for packaging plans, verified Linux architectures, and the current status of Windows and macOS. **Windows and macOS have not been tested or supported.** Do not interpret generic Python packaging as evidence of cross-platform compatibility.

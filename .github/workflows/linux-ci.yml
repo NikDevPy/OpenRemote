@@ -1,0 +1,65 @@
+name: Linux CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Linux Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install agent and test requirements
+        run: python -m pip install .
+      - name: Run suite
+        run: python -m unittest discover -s tests -q
+      - name: Verify CLI entry point
+        run: openremote-agent --help
+  package:
+    name: Linux packaging smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build wheel and sdist
+        run: |
+          python -m pip install build
+          python -m build
+      - name: Check metadata and LICENSE are included
+        run: |
+          python - <<'PY'
+          import glob
+          import tarfile
+          import zipfile
+
+          wheels = glob.glob("dist/*.whl")
+          tarballs = glob.glob("dist/*.tar.gz")
+          assert len(wheels) == 1 and len(tarballs) == 1
+          with zipfile.ZipFile(wheels[0]) as wheel:
+              names = wheel.namelist()
+              assert any(n.endswith("/LICENSE") for n in names)
+              assert "openremote_agent/server.py" in names
+          with tarfile.open(tarballs[0], "r:gz") as sdist:
+              names = sdist.getnames()
+              assert any(n.endswith("/LICENSE") for n in names)
+          print("Linux package smoke checks passed")
+          PY
+      - name: Upload Linux-built Python distributions (CI only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: openremote-python-dist-linux-built
+          path: dist/*

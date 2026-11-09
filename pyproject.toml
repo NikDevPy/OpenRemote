@@ -1,7 +1,8 @@
 [project]
 name = "openremote-probe"
 version = "0.3.1"
-description = "MCP проба и ограниченный безопасный SSH агент OpenRemote"
+description = "Self-hosted Linux MCP agent for trusted SSH machines and ChatGPT"
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = ["mcp==1.29.0", "uvicorn>=0.35,<1"]
 
