@@ -34,8 +34,9 @@ python3 -m venv .venv
 
 Run it **from a graphical desktop login**, with a working X11 or Wayland Qt
 session. If your private agent configuration uses another filename,
-provide that file with `--config`. The GUI does not require root, sudo,
-a browser, an API key, or a new tunnel.
+provide that file with `--config`. The dashboard does not require root or sudo. On a fresh installation,
+ the setup wizard guides the owner through a private tunnel and runtime key.
+The OpenAI account password is never entered in OpenRemote.
 
 On a headless server, run the **agent only**, not the GUI. OpenRemote will
 continue to serve ChatGPT without any graphical session.
@@ -80,7 +81,24 @@ QT_QPA_PLATFORM=offscreen .venv/bin/openremote-gui \
 ~~~
 
 The resulting image verifies a rendered window, **not** the operation of a
-physical system tray or platform window manager. A real desktop test remains
-necessary before declaring tray behavior fully verified.
+physical system tray or platform window manager.
+
+**Observed real desktop test (2026-11-09):** on a GNOME Wayland desktop,
+`QSystemTrayIcon.isSystemTrayAvailable()` returned true. An actual window
+was opened, closed, and confirmed to be hidden while its tray icon stayed
+visible. Other desktop shells and Windows/macOS have not been verified.
+
+One GUI process on that Linux host used about **130 MiB RSS** during an
+early running sample; this is a single-environment observation, not a
+resource limit or benchmark guarantee. No Qt process is required on a
+headless SSH peer.
 
 See [MULTI_CHAT](MULTI_CHAT.md), [JOBS](JOBS.md) and [SECURITY](SECURITY.md).
+
+
+## Graphical first-run installer
+
+An experimental `.deb` setup path now exists, including a six-step
+OpenAI tunnel wizard and installed application icon. It avoids manual JSON
+edits and starts with safe viewer permissions. Read
+[ONBOARDING](ONBOARDING.md) for screenshots, dependencies and limitations.

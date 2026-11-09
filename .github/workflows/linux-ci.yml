@@ -40,7 +40,7 @@ jobs:
       - name: Render/interaction smoke without display
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m unittest tests.test_gui_ui -v
+        run: python -m unittest tests.test_gui_ui tests.test_wizard_ui -v
       - name: Verify GUI launcher
         env:
           QT_QPA_PLATFORM: offscreen
@@ -74,6 +74,9 @@ jobs:
               assert "openremote_agent/server.py" in names
               assert "openremote_agent/coordination.py" in names
               assert "openremote_gui/app.py" in names
+          assert "openremote_gui/onboarding.py" in names
+          assert "openremote_gui/wizard.py" in names
+          assert "openremote_gui/assets/openremote.svg" in names
           with tarfile.open(tarballs[0], "r:gz") as sdist:
               names = sdist.getnames()
               assert any(n.endswith("/LICENSE") for n in names)
@@ -84,3 +87,34 @@ jobs:
         with:
           name: openremote-python-dist-linux-built
           path: dist/*
+
+  deb-preview:
+    name: Debian amd64 preview package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install isolated builder
+        run: python -m pip install build
+      - name: Build Debian installer
+        env:
+          OPENREMOTE_BUILD_PYTHON: python
+        run: bash scripts/build_linux_deb.sh dist
+      - name: Verify package contents without installing as root
+        run: |
+          deb=$(find dist -maxdepth 1 -name '*.deb' -print -quit)
+          test -n "$deb"
+          dpkg-deb -I "$deb"
+          mkdir -p /tmp/openremote-extract
+          dpkg-deb -x "$deb" /tmp/openremote-extract
+          test -x /tmp/openremote-extract/usr/bin/openremote-control-center
+          test -f /tmp/openremote-extract/usr/share/applications/openremote-control-center.desktop
+          test -f /tmp/openremote-extract/usr/share/icons/hicolor/scalable/apps/openremote-control-center.svg
+          bash -n /tmp/openremote-extract/usr/bin/openremote-control-center
+      - name: Upload experimental Debian package
+        uses: actions/upload-artifact@v4
+        with:
+          name: openremote-deb-linux-amd64-preview
+          path: dist/*.deb

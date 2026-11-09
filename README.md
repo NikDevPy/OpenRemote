@@ -16,7 +16,33 @@
 - **Parallel chats:** SQLite WAL, per-target file locks, bounded OS command slots, and optional task labels/idempotency keys prevent common conflicts between independent conversations.
 - **Optional Linux desktop GUI:** a minimal dashboard with device checks, jobs, transfers, light/dark appearance, and minimize-to-tray on supported desktops.
 
-**Current development version:** 0.5.0, Linux only, Python 3.11+, MCP SDK 1.29.0. This project is under active development and is not a production-grade multi-user remote-administration service.
+**Current development version:** 0.6.0, Linux only, Python 3.11+, MCP SDK 1.29.0. This project is under active development and is not a production-grade multi-user remote-administration service.
+
+## Install and connect in six steps — Linux .deb preview
+
+![First-run setup](docs/assets/onboarding-welcome-ru.png)
+
+**New users no longer need to edit JSON or operate a terminal** for the
+standard personal setup. Install the preview `.deb`, launch OpenRemote
+from the desktop menu, and follow the six-screen wizard to register an
+OpenAI account, create a Secure MCP Tunnel, supply a restricted runtime
+key and official tunnel-client, verify the local service, and create a
+private ChatGPT plugin.
+
+The OpenAI account, tunnel and ChatGPT plugin are created on the official
+websites: **OpenRemote never asks for the OpenAI account password.**
+A setup key is stored only in an owner-private `0600` file. The wizard
+does not overwrite existing agent/tunnel configurations.
+
+**Linux preview limitation:** the small `.deb` installs a desktop launcher
+and wheel, then downloads Python/Qt dependencies from PyPI at **first launch**.
+It is not an offline or fully bundled installer; the tested user environment
+used about **729 MiB**. The official OpenAI tunnel-client must be downloaded
+separately. Windows `.exe` installers and Windows/macOS agents are **not
+available or verified** yet.
+
+Read [first-run onboarding and Debian package details](docs/ONBOARDING.md)
+for requirements, screenshots, security boundaries and recovery.
 
 ## Optional desktop Control Center
 
