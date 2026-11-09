@@ -9,6 +9,8 @@ import re
 
 ROLES = {"viewer": 0, "operator": 1, "admin": 2}
 DEVICE_RE = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}\Z")
+SSH_TARGET_RE = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.@-]{0,199}\Z")
+SSH_HOST_RE = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}\Z")
 
 
 @dataclass(frozen=True)
@@ -28,12 +30,30 @@ class CommandSpec:
 
 
 @dataclass(frozen=True)
+class SSHPeer:
+    """Только указанный владельцем SSH-хост и MCP процесс (не пользовательский argv)."""
+    target: str
+    host_name: str
+    python: str
+    config_path: str
+
+    def __post_init__(self) -> None:
+        if not SSH_TARGET_RE.fullmatch(self.target) or not SSH_HOST_RE.fullmatch(self.host_name):
+            raise ValueError("Недопустимый SSH target/HostName")
+        for path in (self.python, self.config_path):
+            if (not isinstance(path, str) or not path.startswith("/") or
+                    "\x00" in path or "\n" in path or "\r" in path):
+                raise ValueError("Нужен абсолютный путь к Python и удалённому конфигу")
+
+
+@dataclass(frozen=True)
 class Config:
     device_id: str
     root: Path
     state: Path
     role: str = "viewer"
     commands: dict[str, CommandSpec] = field(default_factory=dict)
+    peers: dict[str, SSHPeer] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not DEVICE_RE.fullmatch(self.device_id):
@@ -47,6 +67,9 @@ class Config:
         for name in self.commands:
             if not DEVICE_RE.fullmatch(name):
                 raise ValueError("Недопустимый идентификатор команды")
+        for name, peer in self.peers.items():
+            if not DEVICE_RE.fullmatch(name) or name == self.device_id or not isinstance(peer, SSHPeer):
+                raise ValueError("Недопустимый идентификатор доверенного SSH-устройства")
 
 
 def load_config(path: Path) -> Config:
@@ -55,7 +78,7 @@ def load_config(path: Path) -> Config:
     if not path.is_file() or path.is_symlink() or st.st_uid != os.getuid() or st.st_mode & 0o022:
         raise ValueError("Конфигурация должна принадлежать пользователю и не допускать чужой записи")
     data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or set(data) - {"device_id", "root", "state", "role", "commands"}:
+    if not isinstance(data, dict) or set(data) - {"device_id", "root", "state", "role", "commands", "peers"}:
         raise ValueError("Неизвестные ключи конфигурации")
     entries = data.get("commands", {})
     if not isinstance(entries, dict):
@@ -68,8 +91,16 @@ def load_config(path: Path) -> Config:
         if not isinstance(argv, list) or not all(isinstance(arg, str) for arg in argv):
             raise ValueError(f"Некорректные argv: {name}")
         commands[name] = CommandSpec(tuple(argv), float(entry.get("timeout", 10)))
+    entries = data.get("peers", {})
+    if not isinstance(entries, dict):
+        raise ValueError("peers должен быть объектом")
+    peers = {}
+    for name, entry in entries.items():
+        if not isinstance(entry, dict) or set(entry) != {"target", "host_name", "python", "config_path"}:
+            raise ValueError(f"Неправильная запись устройства: {name}")
+        peers[name] = SSHPeer(**entry)
     return Config(
         device_id=data["device_id"], root=Path(data["root"]),
         state=Path(data["state"]), role=data.get("role", "viewer"),
-        commands=commands,
+        commands=commands, peers=peers,
     )

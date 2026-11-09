@@ -4,3 +4,11 @@ __pycache__/
 .probe/
 dist/
 build/
+
+# Private credentials and runtime artifacts
+key.txt
+id.txt
+.env
+*.env
+*.secret
+*.sqlite3

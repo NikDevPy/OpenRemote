@@ -54,11 +54,13 @@ import uvicorn
 
 from .config import load_config
 from .engine import Agent
+from .router import Router
 
 
 class Server:
     def __init__(self, agent: Agent):
         self.agent = agent
+        self.router = Router(agent)
         self.mcp = FastMCP(
             "OpenRemote", host="127.0.0.1", port=8766,
             stateless_http=True, json_response=True,
@@ -79,33 +81,33 @@ class Server:
         self.mcp.tool(annotations=write)(self.execute_command)
         self.mcp.tool(annotations=read)(self.audit_tail)
 
-    def system_info(self, device_id: str | None = None) -> InfoResult:
-        """Покажи ОС, архитектуру и роль локального устройства. device_id необязателен."""
-        return self.agent.system_info(device_id)
+    async def system_info(self, device_id: str | None = None) -> InfoResult:
+        """Покажи сведения о разрешённом устройстве (локальном или через SSH)."""
+        return await self.router.call("system_info", {}, device_id)
 
     def list_devices(self) -> DeviceResult:
-        """Перечисли зарегистрированные устройства. Удалённые устройства появятся после настройки транспорта."""
-        return self.agent.list_devices()
+        """Покажи локальное и настроенные SSH-устройства; configured не равно online."""
+        return self.router.list_devices()
 
-    def list_files(self, path: str = ".", device_id: str | None = None) -> ListResult:
-        """Прочти до 100 имён в каталоге sandbox. Только относительные пути; symlink не обходятся."""
-        return self.agent.list_files(path, device_id)
+    async def list_files(self, path: str = ".", device_id: str | None = None) -> ListResult:
+        """Прочти до 100 имён в sandbox выбранного устройства, не выходя за его границы."""
+        return await self.router.call("list_files", {"path": path}, device_id)
 
-    def read_text(self, path: str, device_id: str | None = None) -> ReadResult:
-        """Прочти UTF-8 файл не более 64 КиБ внутри sandbox, без переходов по symlink."""
-        return self.agent.read_text(path, device_id)
+    async def read_text(self, path: str, device_id: str | None = None) -> ReadResult:
+        """Прочти UTF-8 файл до 64 КиБ в sandbox выбранного устройства."""
+        return await self.router.call("read_text", {"path": path}, device_id)
 
-    def write_text(self, path: str, content: str, device_id: str | None = None) -> WriteResult:
-        """Создай новый UTF-8 файл до 64 КиБ в sandbox. Требуется operator; перезапись запрещена."""
-        return self.agent.write_text(path, content, device_id)
+    async def write_text(self, path: str, content: str, device_id: str | None = None) -> WriteResult:
+        """Создай новый файл в sandbox выбранного устройства. Нужна operator, перезапись запрещена."""
+        return await self.router.call("write_text", {"path": path, "content": content}, device_id)
 
     async def execute_command(self, command_id: str, device_id: str | None = None) -> CommandResult:
-        """Выполни разрешённый локальным конфигом command_id без shell и пользовательских argv. Требуется operator."""
-        return await self.agent.execute_command(command_id, device_id)
+        """Выполни только команду из allowlist выбранного устройства, без shell/argv пользователя. Нужна operator."""
+        return await self.router.call("execute_command", {"command_id": command_id}, device_id)
 
-    def audit_tail(self, limit: int = 20) -> AuditResult:
-        """Последние события постоянного аудита без путей и содержимого. Требуется admin."""
-        return self.agent.audit_tail(limit)
+    async def audit_tail(self, limit: int = 20, device_id: str | None = None) -> AuditResult:
+        """Последние события аудита на выбранном устройстве, без путей и содержимого. Нужна admin."""
+        return await self.router.call("audit_tail", {"limit": limit}, device_id)
 
 
 class LocalAuth:
@@ -151,7 +153,8 @@ def main() -> None:
             print(json.dumps({
                 "device_id": config.device_id, "role": config.role,
                 "sandbox": str(config.root), "audit": str(config.state),
-                "commands": sorted(config.commands), "ready": True
+                "commands": sorted(config.commands),
+                "peers": sorted(config.peers), "ready": True
             }, ensure_ascii=False, indent=2))
             return
         server = Server(agent)
