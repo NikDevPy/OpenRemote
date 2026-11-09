@@ -189,6 +189,9 @@ For details about write confirmations and the command model, read [SECURITY](SEC
 
 ## 7. Operating limits and help
 
-The current agent has **24 tools** but no multi-user authentication, robust subprocess sandboxing, or interactive PTY. Text file tools remain limited to 64 KiB; resumable binary transfer supports 1 GiB files in bounded chunks. Direct run_argv is limited to 60 seconds, while persistent start_job tasks may run for up to 6 hours with output stored on the target device. See [JOBS](JOBS.md) and [TRANSFERS](TRANSFERS.md). OpenAI Secure MCP Tunnel independently imposes rate, message-size and request-deadline limits; check its current documentation.
+The current agent has **25 tools** but no multi-user authentication, robust subprocess sandboxing, or interactive PTY. Text file tools remain limited to 64 KiB; resumable binary transfer supports 1 GiB files in bounded chunks. Direct run_argv is limited to 60 seconds, while persistent start_job tasks may run for up to 6 hours with output stored on the target device. See [JOBS](JOBS.md) and [TRANSFERS](TRANSFERS.md). OpenAI Secure MCP Tunnel independently imposes rate, message-size and request-deadline limits; check its current documentation.
 
-If tool discovery fails or the tunnel shows offline, see [TROUBLESHOOTING](TROUBLESHOOTING.md). The GitHub repository does not have access to your machines; every deployment is yours to configure and operate.
+If tool discovery fails or the tunnel shows offline, see
+[TROUBLESHOOTING](TROUBLESHOOTING.md). On a graphical Linux desktop,
+you can run the optional [GUI](GUI.md). For parallel conversations,
+see [MULTI_CHAT](MULTI_CHAT.md). The GitHub repository does not have access to your machines; every deployment is yours to configure and operate.

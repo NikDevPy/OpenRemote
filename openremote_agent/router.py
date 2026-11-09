@@ -15,6 +15,7 @@ from .engine import Agent
 
 REQUIRED_ROLES = {
     "system_info": "viewer",
+    "probe_device": "viewer",
     "list_workspaces": "viewer",
     "list_files": "viewer",
     "read_text": "viewer",
@@ -79,12 +80,13 @@ class Router:
         )
 
     async def _remote_call(
-        self, peer: SSHPeer, tool: str, arguments: dict[str, Any]
+        self, peer: SSHPeer, tool: str, arguments: dict[str, Any],
+        timeout_seconds: float = 75,
     ) -> dict:
         params = self.ssh_params(peer)
         try:
             # 5s SSH connect + до 60s allowlist-команда + запас на MCP handshake.
-            async with asyncio.timeout(75):
+            async with asyncio.timeout(timeout_seconds):
                 async with stdio_client(params) as (read, write):
                     async with ClientSession(read, write) as session:
                         await session.initialize()
@@ -99,6 +101,58 @@ class Router:
             raise
         except Exception:
             raise ValueError("Ошибка SSH/MCP или отказ удалённого агента") from None
+
+    async def probe_device(self, device_id: str, refresh: bool = False) -> dict:
+        """On-demand verified MCP probe, cached briefly across conversations.
+
+        Configured SSH peers are not assumed online. Only trusted, owner
+        registered target IDs can be probed; no user-supplied hostnames.
+        """
+        started = time.monotonic()
+        target = device_id or self.agent.config.device_id
+        if target == self.agent.config.device_id:
+            info = self.agent.system_info()
+            return {"device_id": target, "online": bool(info["online"]),
+                    "checked_at": int(time.time()), "cached": False,
+                    "operation_id": self.agent.audit.record("probe_device", "local", started)}
+        peer = self.agent.config.peers.get(target)
+        if peer is None:
+            self.agent.audit.record("probe_device", "unknown_device", started)
+            raise ValueError("Unknown registered device")
+        if ROLES[self.agent.config.role] < ROLES["viewer"]:
+            raise PermissionError("Viewer role required")
+        if not refresh:
+            cached = self.agent.audit.probe_get(target)
+            if cached is not None:
+                cached["cached"] = True
+                cached["operation_id"] = self.agent.audit.record("probe_device", "cached", started)
+                return cached
+
+        try:
+            with self.agent.coordinator.lock("peer-probe", target, timeout=5):
+                if not refresh:
+                    cached = self.agent.audit.probe_get(target)
+                    if cached is not None:
+                        cached["cached"] = True
+                        cached["operation_id"] = self.agent.audit.record("probe_device", "cached", started)
+                        return cached
+                try:
+                    info = await self._remote_call(
+                        peer, "system_info", {"device_id": target}, timeout_seconds=12)
+                    online = (info.get("device_id") == target and info.get("online") is True)
+                except asyncio.CancelledError:
+                    raise
+                except (ValueError, TimeoutError, OSError):
+                    online = False
+                value = self.agent.audit.probe_put(target, online)
+        except TimeoutError:
+            # Another chat already runs a probe. A busy result does not mean offline.
+            self.agent.audit.record("probe_device", "busy", started)
+            raise ValueError("Peer probe in progress; retry shortly") from None
+        value["cached"] = False
+        value["operation_id"] = self.agent.audit.record(
+            "probe_device", "online" if value["online"] else "offline", started)
+        return value
 
     async def call(
         self, tool: str, arguments: dict[str, Any],

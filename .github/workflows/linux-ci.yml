@@ -27,6 +27,25 @@ jobs:
         run: python -m unittest discover -s tests -q
       - name: Verify CLI entry point
         run: openremote-agent --help
+  gui:
+    name: Linux Qt offscreen smoke (optional GUI)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install optional GUI
+        run: python -m pip install '.[gui]'
+      - name: Render/interaction smoke without display
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest tests.test_gui_ui -v
+      - name: Verify GUI launcher
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: openremote-gui --help
+
   package:
     name: Linux packaging smoke test
     runs-on: ubuntu-latest
@@ -53,6 +72,8 @@ jobs:
               names = wheel.namelist()
               assert any(n.endswith("/LICENSE") for n in names)
               assert "openremote_agent/server.py" in names
+              assert "openremote_agent/coordination.py" in names
+              assert "openremote_gui/app.py" in names
           with tarfile.open(tarballs[0], "r:gz") as sdist:
               names = sdist.getnames()
               assert any(n.endswith("/LICENSE") for n in names)

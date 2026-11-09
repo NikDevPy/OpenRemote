@@ -1,18 +1,22 @@
 [project]
 name = "openremote-probe"
-version = "0.4.0"
+version = "0.5.0"
 description = "Self-hosted Linux MCP agent for trusted SSH machines and ChatGPT"
 license = "MIT"
 requires-python = ">=3.11"
 dependencies = ["mcp==1.29.0", "uvicorn>=0.35,<1"]
 
+[project.optional-dependencies]
+gui = ["PySide6>=6.9,<7"]
+
 [project.scripts]
 openremote-probe = "openremote_probe.server:main"
 openremote-agent = "openremote_agent.server:main"
+openremote-gui = "openremote_gui.app:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["openremote_probe*", "openremote_agent*"]
+include = ["openremote_probe*", "openremote_agent*", "openremote_gui*"]

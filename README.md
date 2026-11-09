@@ -13,8 +13,21 @@
 - **Binary transfer:** upload/download in bounded base64 chunks with resume offsets, a 1 GiB per-file limit, and SHA-256 integrity verification.
 - **Approvals and audit:** role checks (viewer/operator/admin), one-time local approval for sensitive predefined commands, command timeouts, and an SQLite audit log.
 - **Private ChatGPT integration:** an outbound Secure MCP Tunnel is used instead of opening an inbound port.
+- **Parallel chats:** SQLite WAL, per-target file locks, bounded OS command slots, and optional task labels/idempotency keys prevent common conflicts between independent conversations.
+- **Optional Linux desktop GUI:** a minimal dashboard with device checks, jobs, transfers, light/dark appearance, and minimize-to-tray on supported desktops.
 
-**Current development version:** 0.4.0, Linux only, Python 3.11+, MCP SDK 1.29.0. This project is under active development and is not a production-grade multi-user remote-administration service.
+**Current development version:** 0.5.0, Linux only, Python 3.11+, MCP SDK 1.29.0. This project is under active development and is not a production-grade multi-user remote-administration service.
+
+## Optional desktop Control Center
+
+![OpenRemote desktop Control Center (sanitized example)](docs/assets/control-center-light.png)
+
+On a supported Linux graphical desktop, install the optional GUI with
+`python -m pip install '.[gui]'`, then run `openremote-gui --config
+~/.config/openremote-agent/agent.json`. Closing/minimizing hides the window
+in the system tray **only when a tray is available**. The MCP agent keeps
+running independently. See [GUI](docs/GUI.md) and
+[parallel chat safety](docs/MULTI_CHAT.md).
 
 ## Start here
 
@@ -56,6 +69,7 @@ See the [quickstart](docs/QUICKSTART.md) for the remaining steps. Never copy som
 | Tool | What it does | Access |
 | --- | --- | --- |
 | system_info | OS, architecture, and device ID | viewer |
+| probe_device | Real read-only MCP health check for a registered device (briefly cached) | viewer |
 | list_devices | Local and configured SSH peers | viewer |
 | list_workspaces | Available file roots and read/write settings | viewer |
 | list_files | List up to 100 entries in a workspace | viewer |
@@ -99,7 +113,7 @@ A public **GitHub repository** does not create a public **plugin**. Every person
 
 ## Limitations
 
-- Linux-focused; no Windows/macOS native agent or GUI yet.
+- Linux-focused; the optional desktop GUI is a Linux preview. No Windows/macOS native agent or verified GUI releases yet.
 - Text file calls are limited to 64 KiB; **binary transfers** support files up to 1 GiB in 128 KiB raw chunks, with additional MCP/ChatGPT request limits.
 - Direct `run_argv` calls are limited to 60 seconds and 8 KiB per output stream; **persistent jobs** run up to 6 hours and retain up to 8 MiB per output stream.
 - The OpenAI tunnel has separate request, message-size, and rate limits. This is not an unlimited-throughput connection.
@@ -114,6 +128,8 @@ A public **GitHub repository** does not create a public **plugin**. Every person
 - **[TROUBLESHOOTING — tunnel, SSH, permissions, common errors](docs/TROUBLESHOOTING.md)**
 - **[JOBS — persistent processes, output, cancellation, limits](docs/JOBS.md)**
 - **[TRANSFERS — resumable binary files, SHA-256, chunking](docs/TRANSFERS.md)**
+- **[MULTI_CHAT — concurrency safety and benchmarks](docs/MULTI_CHAT.md)**
+- **[GUI — lightweight Qt tray app](docs/GUI.md)**
 - [Owner-control technical notes](docs/owner-control.md)
 - [SSH routing design notes](docs/ssh-routing.md)
 - [Historical probe and compatibility research](docs/compatibility.md)

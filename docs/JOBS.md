@@ -32,6 +32,19 @@ reopening the ChatGPT conversation or losing SSH connectivity temporarily:
 as the configured Linux user and are high-risk/destructive-capable. A workspace
 is only the working directory, not a subprocess filesystem sandbox.
 
+## Multi-chat task labels and idempotency
+
+`start_job` accepts optional `task_label` (1–64 printable characters) and
+`idempotency_key` (8–128 safe characters). Two conversations can launch
+different jobs independently, while a retry with the **same** idempotency key
+and identical arguments returns the existing job ID. Reusing a key with
+different commands is rejected.
+
+The idempotency key is scoped to the target machine and is stored only
+as a SHA-256 digest in private state. It is **not** an authenticated ChatGPT
+conversation ID. Choose a fresh key for each new logical operation.
+See [MULTI_CHAT](MULTI_CHAT.md).
+
 ## Durability, limits and lifecycle
 
 - A detached per-job Python worker survives normal MCP stdio or SSH session

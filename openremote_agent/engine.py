@@ -14,6 +14,7 @@ from .audit import Audit
 from .config import Config, ROLES
 from .filesystem import SafeFiles
 from .jobs import Jobs
+from .coordination import Coordinator
 from .transfers import Transfers
 
 
@@ -28,7 +29,8 @@ class Agent:
         except BaseException:
             self.files.close()
             raise
-        self.jobs = Jobs(config.state)
+        self.coordinator = Coordinator(config.state)
+        self.jobs = Jobs(config.state, self.coordinator)
         self.transfers = Transfers(config.state, self._file_area)
         self._executions = asyncio.Semaphore(1)
 
@@ -124,7 +126,8 @@ class Agent:
         started = self._guard("write_text", "operator", device_id)
         try:
             with self._file_area(workspace, writing=True) as area:
-                result = area.write_text(path, content)
+                with self.coordinator.file(str(area.root), path):
+                    result = area.write_text(path, content)
         except (ValueError, OSError, UnicodeError, PermissionError):
             self.audit.record("write_text", "denied", started)
             raise ValueError("Создание файла запрещено: путь, размер или существующий файл") from None
@@ -136,7 +139,8 @@ class Agent:
         started = self._guard("replace_text", "operator", device_id)
         try:
             with self._file_area(workspace, writing=True) as area:
-                result = area.replace_text(path, content, expected_sha256)
+                with self.coordinator.file(str(area.root), path):
+                    result = area.replace_text(path, content, expected_sha256)
         except (ValueError, OSError, UnicodeError, PermissionError):
             self.audit.record("replace_text", "denied", started)
             raise ValueError("Замена запрещена, файл изменён или путь вне рабочей области") from None
@@ -205,7 +209,10 @@ class Agent:
 
     def finish_upload(self, upload_id: str, device_id: str | None = None) -> dict:
         started = self._guard("finish_upload", "operator", device_id)
-        result = self.transfers.finish(upload_id)
+        workspace, path = self.transfers.target(upload_id)
+        with self._file_area(workspace, writing=True) as area:
+            with self.coordinator.file(str(area.root), path):
+                result = self.transfers.finish(upload_id)
         result["operation_id"] = self.audit.record("finish_upload", "ok", started)
         return result
 
@@ -216,7 +223,9 @@ class Agent:
         return result
 
     def start_job(self, argv: list[str], workspace: str = "sandbox",
-                  timeout_seconds: int = 3600, device_id: str | None = None) -> dict:
+                  timeout_seconds: int = 3600, device_id: str | None = None,
+                  task_label: str | None = None,
+                  idempotency_key: str | None = None) -> dict:
         """Launch detached process with bounded logs; survives stdio disconnect."""
         started = self._guard("start_job", "admin", device_id)
         if not self.config.ad_hoc_enabled:
@@ -224,7 +233,8 @@ class Agent:
             raise PermissionError("ad_hoc_enabled is required for arbitrary background jobs")
         try:
             with self._file_area(workspace) as area:
-                result = self.jobs.start(argv, str(area.root), timeout_seconds)
+                result = self.jobs.start(argv, str(area.root), timeout_seconds,
+                                         task_label=task_label, idempotency_key=idempotency_key)
         except (ValueError, OSError):
             self.audit.record("start_job", "denied", started)
             raise ValueError("Invalid job command, workspace or timeout") from None
@@ -264,6 +274,17 @@ class Agent:
 
     async def run_argv(self, argv: list[str], workspace: str = "sandbox",
                        timeout: float = 30, device_id: str | None = None) -> dict:
+        """Cross-process capped direct execution."""
+        started = time.monotonic()
+        try:
+            with self.coordinator.slot("direct-commands", limit=4):
+                return await self._run_argv_inner(argv, workspace, timeout, device_id)
+        except TimeoutError:
+            self.audit.record("run_argv", "capacity", started)
+            raise ValueError("Concurrent command capacity reached; retry later") from None
+
+    async def _run_argv_inner(self, argv: list[str], workspace: str = "sandbox",
+                              timeout: float = 30, device_id: str | None = None) -> dict:
         """Запуск произвольного argv в контексте пользователя ОС, без shell=True.
 
         Высокорисковая функция, включаемая только отдельным флагом локального
@@ -337,6 +358,16 @@ class Agent:
             return result
 
     async def execute_command(self, command_id: str, device_id: str | None = None) -> dict:
+        """Capped execution of a locally approved command."""
+        started = time.monotonic()
+        try:
+            with self.coordinator.slot("direct-commands", limit=4):
+                return await self._execute_command_inner(command_id, device_id)
+        except TimeoutError:
+            self.audit.record("execute_command", "capacity", started)
+            raise ValueError("Concurrent command capacity reached; retry later") from None
+
+    async def _execute_command_inner(self, command_id: str, device_id: str | None = None) -> dict:
         """Без shell и произвольных аргументов: только команда из локальной политики."""
         started = self._guard("execute_command", "operator", device_id)
         command = self.config.commands.get(command_id)

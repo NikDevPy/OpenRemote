@@ -199,6 +199,11 @@ class Transfers:
             return {"upload_id": upload_id, "received": data["received"],
                     "total_size": data["total_size"]}
 
+    def target(self, upload_id: str) -> tuple[str, str]:
+        """Read immutable upload target for the shared cross-process file lock."""
+        with self._locked(upload_id) as (_, info):
+            return info["workspace"], info["path"]
+
     def finish(self, upload_id: str) -> dict:
         with self._locked(upload_id) as (manifest_path, data):
             if data["received"] != data["total_size"]:

@@ -12,6 +12,13 @@ from pathlib import Path
 import sys
 from typing import TypedDict
 
+class ProbeResult(TypedDict):
+    device_id: str
+    online: bool
+    checked_at: int
+    cached: bool
+    operation_id: str
+
 class InfoResult(TypedDict):
     device_id: str
     os: str
@@ -111,12 +118,15 @@ class JobStartResult(TypedDict):
     job_id: str
     status: str
     timeout_seconds: int
+    task_label: str | None
+    reused: bool
     operation_id: str
 
 class JobStatusResult(TypedDict):
     job_id: str
     status: str
     exit_code: int | None
+    task_label: str | None
     started_at: int
     timeout_seconds: int
     stdout_bytes: int
@@ -184,6 +194,7 @@ class Server:
         # Назначение команды задаётся локальной политикой и может быть необратимым.
         command_write = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True)
         self.mcp.tool(annotations=read)(self.system_info)
+        self.mcp.tool(annotations=read)(self.probe_device)
         self.mcp.tool(annotations=read)(self.list_devices)
         self.mcp.tool(annotations=read)(self.list_workspaces)
         self.mcp.tool(annotations=read)(self.list_files)
@@ -211,6 +222,11 @@ class Server:
     async def system_info(self, device_id: str | None = None) -> InfoResult:
         """Покажи сведения о разрешённом устройстве (локальном или через SSH)."""
         return await self.router.call("system_info", {}, device_id)
+
+    async def probe_device(self, device_id: str,
+                           refresh: bool = False) -> ProbeResult:
+        """Verify a registered device with an actual MCP call. Returns a recent cached result if no refresh was requested; never assumes a configured peer is online."""
+        return await self.router.probe_device(device_id, refresh)
 
     def list_devices(self) -> DeviceResult:
         """Покажи локальное и настроенные SSH-устройства; configured не равно online."""
@@ -303,10 +319,13 @@ class Server:
         return await self.router.call("cancel_upload", {"upload_id": upload_id}, device_id)
 
     async def start_job(self, argv: list[str], device_id: str | None = None,
-                        workspace: str = "sandbox", timeout_seconds: int = 3600) -> JobStartResult:
+                        workspace: str = "sandbox", timeout_seconds: int = 3600,
+                        task_label: str | None = None,
+                        idempotency_key: str | None = None) -> JobStartResult:
         """Start a potentially destructive long-running command as the target OS user; requires admin and ad_hoc_enabled. Output and status are persisted after MCP disconnect; maximum 6h."""
         return await self.router.call("start_job", {
             "argv": argv, "workspace": workspace, "timeout_seconds": timeout_seconds,
+            "task_label": task_label, "idempotency_key": idempotency_key,
         }, device_id)
 
     async def job_status(self, job_id: str, device_id: str | None = None) -> JobStatusResult:

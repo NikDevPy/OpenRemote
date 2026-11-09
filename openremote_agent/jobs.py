@@ -5,6 +5,7 @@ Jobs run with the agent's OS identity. They are NOT a privilege boundary.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -49,7 +50,9 @@ def pid_start(pid: int) -> str | None:
 
 
 class Jobs:
-    def __init__(self, state: Path):
+    def __init__(self, state: Path, coordinator=None):
+        from .coordination import Coordinator
+        self.coordinator = coordinator or Coordinator(state)
         self.root = state / "jobs"
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         st = self.root.lstat()
@@ -75,7 +78,14 @@ class Jobs:
     def _alive(meta: dict) -> bool:
         return pid_start(meta.get("worker_pid", -1)) == meta.get("worker_start_ticks")
 
-    def start(self, argv: list[str], cwd: str, timeout_seconds: int = 3600) -> dict:
+    def start(self, argv: list[str], cwd: str, timeout_seconds: int = 3600,
+              task_label: str | None = None,
+              idempotency_key: str | None = None) -> dict:
+        """Admit one background job atomically across concurrent MCP processes.
+
+        Caller-provided labels are organizational only, not authenticated chat
+        identity. Idempotency keys protect against retries and duplicate starts.
+        """
         if (not isinstance(argv, list) or not 1 <= len(argv) <= 40 or
                 not all(isinstance(arg, str) and arg and "\x00" not in arg for arg in argv) or
                 sum(map(len, argv)) > 8192 or not os.path.isabs(argv[0])):
@@ -84,55 +94,86 @@ class Jobs:
             raise ValueError("Job timeout must be 1–21600 seconds")
         if not os.path.isdir(cwd):
             raise ValueError("Working directory missing")
-        previous = [p for p in self.root.iterdir() if p.is_dir() and JOB_ID.fullmatch(p.name)]
-        if len(previous) >= MAX_STORED_JOBS:
-            raise ValueError("Job history limit reached; purge finished jobs")
-        active = 0
-        for previous_folder in previous:
+        if task_label is not None and (not isinstance(task_label, str)
+                or len(task_label) > 64 or not task_label
+                or not all(c.isprintable() for c in task_label)):
+            raise ValueError("Task label must be 1–64 printable characters")
+        if idempotency_key is not None and (not isinstance(idempotency_key, str)
+                or not re.fullmatch(r"[a-zA-Z0-9_.:-]{8,128}", idempotency_key)):
+            raise ValueError("Idempotency key must be 8–128 safe characters")
+        key_hash = (hashlib.sha256(idempotency_key.encode()).hexdigest()
+                    if idempotency_key else None)
+        fingerprint = hashlib.sha256(json.dumps(
+            [argv, cwd, timeout_seconds, task_label],
+            separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+
+        with self.coordinator.lock("jobs", "admission", timeout=5):
+            previous = [p for p in self.root.iterdir()
+                        if p.is_dir() and JOB_ID.fullmatch(p.name)]
+            if key_hash is not None:
+                for p in previous:
+                    try:
+                        info = self._load(p / "meta.json")
+                    except (OSError, ValueError):
+                        continue
+                    if info.get("idempotency_hash") == key_hash:
+                        if info.get("request_fingerprint") != fingerprint:
+                            raise ValueError("Idempotency key already belongs to a different command")
+                        return {"job_id": p.name,
+                                "status": self.status(p.name)["status"],
+                                "timeout_seconds": info["timeout_seconds"],
+                                "task_label": info.get("task_label"),
+                                "reused": True}
+            if len(previous) >= MAX_STORED_JOBS:
+                raise ValueError("Job history limit reached; purge finished jobs")
+            active = 0
+            for previous_folder in previous:
+                try:
+                    meta = self._load(previous_folder / "meta.json")
+                    if not (previous_folder / "result.json").exists() and self._alive(meta):
+                        active += 1
+                except (ValueError, OSError):
+                    continue
+            if active >= MAX_ACTIVE_JOBS:
+                raise ValueError("Too many active jobs; wait or cancel a job")
+            job_id = uuid.uuid4().hex
+            folder = self.root / job_id
+            folder.mkdir(mode=0o700)
+            spec = {"argv": argv, "cwd": cwd, "timeout_seconds": timeout_seconds}
+            atomic_json(folder / "spec.json", spec)
             try:
-                meta = self._load(previous_folder / "meta.json")
-                if not (previous_folder / "result.json").exists() and self._alive(meta):
-                    active += 1
-            except (ValueError, OSError):
-                continue
-        if active >= MAX_ACTIVE_JOBS:
-            raise ValueError("Too many active jobs; wait or cancel a job")
-        job_id = uuid.uuid4().hex
-        folder = self.root / job_id
-        folder.mkdir(mode=0o700)
-        spec = {"argv": argv, "cwd": cwd, "timeout_seconds": timeout_seconds}
-        atomic_json(folder / "spec.json", spec)
-        try:
-            # posix_spawn creates a detached process without a Popen object
-            # that would otherwise warn when the short-lived MCP caller exits.
-            devnull = os.open(os.devnull, os.O_RDWR)
-            try:
-                pid = os.posix_spawn(
-                    sys.executable,
-                    [sys.executable, str(Path(__file__).with_name("job_worker.py")), str(folder)],
-                    {"PATH": "/usr/bin:/bin", "HOME": os.path.expanduser("~"), "LANG": "C.UTF-8"},
-                    file_actions=[
-                        (os.POSIX_SPAWN_DUP2, devnull, 0),
-                        (os.POSIX_SPAWN_DUP2, devnull, 1),
-                        (os.POSIX_SPAWN_DUP2, devnull, 2),
-                        (os.POSIX_SPAWN_CLOSE, devnull),
-                    ],
-                    setsid=True,
-                )
-            finally:
-                os.close(devnull)
-            ticks = pid_start(pid)
-            meta = {"job_id": job_id, "worker_pid": pid,
-                    "worker_start_ticks": ticks, "started_at": int(time.time()),
-                    "timeout_seconds": timeout_seconds}
-            atomic_json(folder / "meta.json", meta)
-            return {"job_id": job_id, "status": "starting", "timeout_seconds": timeout_seconds}
-        except BaseException:
-            # Don't leave unreferenced private job state after a failed spawn.
-            for item in folder.iterdir():
-                item.unlink()
-            folder.rmdir()
-            raise
+                # Detached worker survives its caller's MCP/SSH connection.
+                devnull = os.open(os.devnull, os.O_RDWR)
+                try:
+                    pid = os.posix_spawn(
+                        sys.executable,
+                        [sys.executable, str(Path(__file__).with_name("job_worker.py")), str(folder)],
+                        {"PATH": "/usr/bin:/bin", "HOME": os.path.expanduser("~"), "LANG": "C.UTF-8"},
+                        file_actions=[
+                            (os.POSIX_SPAWN_DUP2, devnull, 0),
+                            (os.POSIX_SPAWN_DUP2, devnull, 1),
+                            (os.POSIX_SPAWN_DUP2, devnull, 2),
+                            (os.POSIX_SPAWN_CLOSE, devnull),
+                        ],
+                        setsid=True,
+                    )
+                finally:
+                    os.close(devnull)
+                ticks = pid_start(pid)
+                meta = {"job_id": job_id, "worker_pid": pid,
+                        "worker_start_ticks": ticks,
+                        "started_at": int(time.time()),
+                        "timeout_seconds": timeout_seconds, "task_label": task_label,
+                        "idempotency_hash": key_hash, "request_fingerprint": fingerprint}
+                atomic_json(folder / "meta.json", meta)
+                return {"job_id": job_id, "status": "starting",
+                        "timeout_seconds": timeout_seconds,
+                        "task_label": task_label, "reused": False}
+            except BaseException:
+                for item in folder.iterdir():
+                    item.unlink()
+                folder.rmdir()
+                raise
 
     def status(self, job_id: str) -> dict:
         folder = self._folder(job_id)
@@ -150,6 +191,7 @@ class Jobs:
             exit_code = None
         return {
             "job_id": job_id, "status": status, "exit_code": exit_code,
+            "task_label": meta.get("task_label"),
             "started_at": meta["started_at"], "timeout_seconds": meta["timeout_seconds"],
             "stdout_bytes": (folder / "stdout.log").stat().st_size if (folder / "stdout.log").exists() else 0,
             "stderr_bytes": (folder / "stderr.log").stat().st_size if (folder / "stderr.log").exists() else 0,

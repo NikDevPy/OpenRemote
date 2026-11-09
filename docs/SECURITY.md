@@ -35,9 +35,22 @@ Tool annotations and a user's broad consent are not a substitute for specific au
 
 ## Identity and multi-user limitations
 
-**OpenRemote 0.4.0 does not authenticate individual callers at the agent layer.** The role is set globally in the private local configuration. Anyone who gains authorized access through the associated private MCP connection receives that server's configured capabilities, subject to ChatGPT and OS restrictions.
+**OpenRemote 0.5.0 does not authenticate individual callers at the agent layer.** The role is set globally in the private local configuration. Anyone who gains authorized access through the associated private MCP connection receives that server's configured capabilities, subject to ChatGPT and OS restrictions.
 
 This is not safe for multiple unrelated users, arbitrary shared workspaces, or public plugin submissions. A production multi-user deployment needs proper OAuth, subject-bound roles, device-specific authorization, approvals, revocation, and an auditable action identity. A public GitHub repository is fine; a publicly accessible unrestricted MCP server is not.
+
+## Multi-chat coordination
+
+Independent ChatGPT conversations can run through separate agent processes.
+OpenRemote serializes schema initialization, uses SQLite WAL, applies
+advisory file locks across cooperating text/binary writes and caps direct
+OS command execution at four concurrent processes per machine.
+Background job admission is guarded by a cross-process lock.
+
+These mechanisms prevent common accidental conflicts. They do **not**
+authenticate the originating ChatGPT conversation, prevent arbitrary
+commands from editing the same files, or isolate unrelated OS applications.
+Task labels are user-provided strings, not verified chat identities.
 
 ## Persistent jobs and binary-transfer risks
 

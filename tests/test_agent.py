@@ -125,7 +125,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                 await session.initialize()
                 tools = {t.name: t for t in (await session.list_tools()).tools}
                 self.assertEqual(set(tools), {
-                    "system_info", "list_devices", "list_workspaces",
+                    "system_info", "probe_device", "list_devices", "list_workspaces",
                     "list_files", "read_text", "write_text", "replace_text",
                     "execute_command", "run_argv", "preview_command", "audit_tail",
                     "start_job", "job_status", "list_jobs", "job_output", "cancel_job", "purge_job",
