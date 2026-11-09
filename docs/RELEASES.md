@@ -3,7 +3,7 @@
 OpenRemote is currently a Python MCP agent for Linux, not a maintained native
 Windows or macOS application.
 
-## Compatibility matrix for v0.3.1
+## Compatibility matrix for v0.4.0
 
 | OS | Architecture | Status | Evidence |
 | --- | --- | --- | --- |
@@ -13,7 +13,7 @@ Windows or macOS application.
 | macOS | Intel / Apple Silicon | **Not tested / Unsupported** | Requires platform-specific filesystem, permissions and service tests |
 
 A Python wheel may be downloadable on any OS. That does NOT establish that
-OpenRemote operates securely or successfully on that OS. In v0.3.1, the
+OpenRemote operates securely or successfully on that OS. In v0.4.0, the
 Python distribution is still named openremote-probe for historical reasons;
 it includes the openremote-agent CLI. A cleaner package rename can be planned
 as a separate versioned migration.
@@ -54,4 +54,4 @@ and tests on actual Intel/Apple Silicon machines.
 If experimental packages are ever uploaded, label them explicitly as
 Not tested / Experimental / No support guarantee, not as verified releases.
 
-See [draft v0.3.1 notes](releases/v0.3.1.md).
+See [v0.4.0 development notes](releases/v0.4.0.md) and the earlier [v0.3.1 draft](releases/v0.3.1.md).

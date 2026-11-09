@@ -9,10 +9,12 @@
 - **Multiple machines:** select a registered device by its device ID. A gateway agent forwards to trusted peers using SSH with host-key verification.
 - **Projects and files:** list owner-approved workspaces, read files, create new text files, and replace existing text only when its SHA-256 checksum matches.
 - **Commands:** run named commands from a local allowlist. An opt-in advanced mode runs an executable and arguments without a fixed command-name blacklist.
+- **Persistent jobs:** start long-running commands that survive MCP/SSH disconnects; page stdout/stderr, cancel a process group, inspect history, and clean old logs.
+- **Binary transfer:** upload/download in bounded base64 chunks with resume offsets, a 1 GiB per-file limit, and SHA-256 integrity verification.
 - **Approvals and audit:** role checks (viewer/operator/admin), one-time local approval for sensitive predefined commands, command timeouts, and an SQLite audit log.
 - **Private ChatGPT integration:** an outbound Secure MCP Tunnel is used instead of opening an inbound port.
 
-**Current release:** 0.3.1, Linux only, Python 3.11+, MCP SDK 1.29.0. This project is under active development and is not a production-grade multi-user remote-administration service.
+**Current development version:** 0.4.0, Linux only, Python 3.11+, MCP SDK 1.29.0. This project is under active development and is not a production-grade multi-user remote-administration service.
 
 ## Start here
 
@@ -64,6 +66,13 @@ See the [quickstart](docs/QUICKSTART.md) for the remaining steps. Never copy som
 | execute_command | Execute a predefined command ID | operator / admin + local approval |
 | run_argv | Opt-in arbitrary executable + arguments | admin + ad_hoc_enabled |
 | audit_tail | Recent local audit events | admin |
+| start_job | Launch a detached command (up to 6 hours) | admin + ad_hoc_enabled |
+| job_status / list_jobs | Check persisted job status and history | admin |
+| job_output | Read stored stdout/stderr in chunks | admin |
+| cancel_job / purge_job | Stop a running job or delete completed logs | admin |
+| binary_file_info / read_binary_chunk | Hash and download binary files in chunks | viewer |
+| begin_upload / upload_chunk / upload_status | Start and resume binary uploads | operator |
+| finish_upload / cancel_upload | Commit a hash-verified transfer or discard it | operator |
 
 The **workspace restriction applies to file tools only**. It does **not** sandbox processes started with run_argv; such processes retain all permissions of their operating-system account. Avoid enabling run_argv unless you understand this distinction. The role in the current version is a server-level role, **not an identity verified independently for each ChatGPT user**.
 
@@ -91,10 +100,11 @@ A public **GitHub repository** does not create a public **plugin**. Every person
 ## Limitations
 
 - Linux-focused; no Windows/macOS native agent or GUI yet.
-- Text file calls are limited to 64 KiB; direct command calls are limited to 60 seconds and 8 KiB per output stream.
+- Text file calls are limited to 64 KiB; **binary transfers** support files up to 1 GiB in 128 KiB raw chunks, with additional MCP/ChatGPT request limits.
+- Direct `run_argv` calls are limited to 60 seconds and 8 KiB per output stream; **persistent jobs** run up to 6 hours and retain up to 8 MiB per output stream.
 - The OpenAI tunnel has separate request, message-size, and rate limits. This is not an unlimited-throughput connection.
 - Configured SSH peers are reported as configured, not automatically proven online.
-- No per-user OAuth, hard isolation for run_argv, streaming file transfers, or durable PTY/job management yet.
+- No per-user OAuth or hard subprocess isolation; **interactive PTY input is not yet available**. Background jobs and chunked binary transfers are supported.
 - No guarantee that custom MCP plugins or Secure MCP Tunnel are enabled in every ChatGPT account/workspace.
 
 ## Documentation
@@ -102,6 +112,8 @@ A public **GitHub repository** does not create a public **plugin**. Every person
 - **[QUICKSTART — installation, SSH, tunnel and ChatGPT](docs/QUICKSTART.md)**
 - **[SECURITY — privilege model, approvals, risk and isolation](docs/SECURITY.md)**
 - **[TROUBLESHOOTING — tunnel, SSH, permissions, common errors](docs/TROUBLESHOOTING.md)**
+- **[JOBS — persistent processes, output, cancellation, limits](docs/JOBS.md)**
+- **[TRANSFERS — resumable binary files, SHA-256, chunking](docs/TRANSFERS.md)**
 - [Owner-control technical notes](docs/owner-control.md)
 - [SSH routing design notes](docs/ssh-routing.md)
 - [Historical probe and compatibility research](docs/compatibility.md)

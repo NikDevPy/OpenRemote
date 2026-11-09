@@ -127,7 +127,10 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(set(tools), {
                     "system_info", "list_devices", "list_workspaces",
                     "list_files", "read_text", "write_text", "replace_text",
-                    "execute_command", "run_argv", "preview_command", "audit_tail"
+                    "execute_command", "run_argv", "preview_command", "audit_tail",
+                    "start_job", "job_status", "list_jobs", "job_output", "cancel_job", "purge_job",
+                    "binary_file_info", "read_binary_chunk", "begin_upload",
+                    "upload_chunk", "upload_status", "finish_upload", "cancel_upload"
                 })
                 self.assertFalse(tools["execute_command"].annotations.readOnlyHint)
                 self.assertTrue(tools["execute_command"].annotations.destructiveHint)

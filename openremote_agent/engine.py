@@ -13,6 +13,8 @@ import time
 from .audit import Audit
 from .config import Config, ROLES
 from .filesystem import SafeFiles
+from .jobs import Jobs
+from .transfers import Transfers
 
 
 class Agent:
@@ -26,6 +28,8 @@ class Agent:
         except BaseException:
             self.files.close()
             raise
+        self.jobs = Jobs(config.state)
+        self.transfers = Transfers(config.state, self._file_area)
         self._executions = asyncio.Semaphore(1)
 
     def close(self) -> None:
@@ -162,6 +166,101 @@ class Agent:
         started = self._guard("audit_tail", "admin", None)
         entries = self.audit.tail(limit)
         return {"entries": entries, "operation_id": self.audit.record("audit_tail", "ok", started)}
+
+    def binary_file_info(self, path: str, workspace: str = "sandbox",
+                         device_id: str | None = None) -> dict:
+        started = self._guard("binary_file_info", "viewer", device_id)
+        result = self.transfers.file_info(workspace, path)
+        result["operation_id"] = self.audit.record("binary_file_info", "ok", started)
+        return result
+
+    def read_binary_chunk(self, path: str, workspace: str = "sandbox", offset: int = 0,
+                          max_bytes: int = 16384, device_id: str | None = None) -> dict:
+        started = self._guard("read_binary_chunk", "viewer", device_id)
+        result = self.transfers.download(workspace, path, offset, max_bytes)
+        result["operation_id"] = self.audit.record("read_binary_chunk", "ok", started)
+        return result
+
+    def begin_upload(self, path: str, total_size: int, sha256: str,
+                     workspace: str = "sandbox",
+                     expected_existing_sha256: str | None = None,
+                     device_id: str | None = None) -> dict:
+        started = self._guard("begin_upload", "operator", device_id)
+        result = self.transfers.begin(workspace, path, total_size, sha256, expected_existing_sha256)
+        result["operation_id"] = self.audit.record("begin_upload", "ok", started)
+        return result
+
+    def upload_chunk(self, upload_id: str, offset: int, data_base64: str,
+                     device_id: str | None = None) -> dict:
+        started = self._guard("upload_chunk", "operator", device_id)
+        result = self.transfers.append(upload_id, offset, data_base64)
+        result["operation_id"] = self.audit.record("upload_chunk", "ok", started)
+        return result
+
+    def upload_status(self, upload_id: str, device_id: str | None = None) -> dict:
+        started = self._guard("upload_status", "operator", device_id)
+        result = self.transfers.status(upload_id)
+        result["operation_id"] = self.audit.record("upload_status", "ok", started)
+        return result
+
+    def finish_upload(self, upload_id: str, device_id: str | None = None) -> dict:
+        started = self._guard("finish_upload", "operator", device_id)
+        result = self.transfers.finish(upload_id)
+        result["operation_id"] = self.audit.record("finish_upload", "ok", started)
+        return result
+
+    def cancel_upload(self, upload_id: str, device_id: str | None = None) -> dict:
+        started = self._guard("cancel_upload", "operator", device_id)
+        result = self.transfers.cancel(upload_id)
+        result["operation_id"] = self.audit.record("cancel_upload", "ok", started)
+        return result
+
+    def start_job(self, argv: list[str], workspace: str = "sandbox",
+                  timeout_seconds: int = 3600, device_id: str | None = None) -> dict:
+        """Launch detached process with bounded logs; survives stdio disconnect."""
+        started = self._guard("start_job", "admin", device_id)
+        if not self.config.ad_hoc_enabled:
+            self.audit.record("start_job", "disabled", started)
+            raise PermissionError("ad_hoc_enabled is required for arbitrary background jobs")
+        try:
+            with self._file_area(workspace) as area:
+                result = self.jobs.start(argv, str(area.root), timeout_seconds)
+        except (ValueError, OSError):
+            self.audit.record("start_job", "denied", started)
+            raise ValueError("Invalid job command, workspace or timeout") from None
+        result["operation_id"] = self.audit.record("start_job", "ok", started)
+        return result
+
+    def job_status(self, job_id: str, device_id: str | None = None) -> dict:
+        started = self._guard("job_status", "admin", device_id)
+        result = self.jobs.status(job_id)
+        result["operation_id"] = self.audit.record("job_status", "ok", started)
+        return result
+
+    def list_jobs(self, limit: int = 20, device_id: str | None = None) -> dict:
+        started = self._guard("list_jobs", "admin", device_id)
+        result = self.jobs.list(limit)
+        result["operation_id"] = self.audit.record("list_jobs", "ok", started)
+        return result
+
+    def job_output(self, job_id: str, stream: str = "stdout", offset: int = 0,
+                   limit_bytes: int = 8192, device_id: str | None = None) -> dict:
+        started = self._guard("job_output", "admin", device_id)
+        result = self.jobs.output(job_id, stream, offset, limit_bytes)
+        result["operation_id"] = self.audit.record("job_output", "ok", started)
+        return result
+
+    def purge_job(self, job_id: str, device_id: str | None = None) -> dict:
+        started = self._guard("purge_job", "admin", device_id)
+        result = self.jobs.purge(job_id)
+        result["operation_id"] = self.audit.record("purge_job", "ok", started)
+        return result
+
+    def cancel_job(self, job_id: str, device_id: str | None = None) -> dict:
+        started = self._guard("cancel_job", "admin", device_id)
+        result = self.jobs.cancel(job_id)
+        result["operation_id"] = self.audit.record("cancel_job", "ok", started)
+        return result
 
     async def run_argv(self, argv: list[str], workspace: str = "sandbox",
                        timeout: float = 30, device_id: str | None = None) -> dict:

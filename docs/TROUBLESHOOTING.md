@@ -70,6 +70,23 @@ Confirm the peer is online and its configured host key matches the expected iden
 - run_argv requires admin **and** ad_hoc_enabled=true in the target's private config; it does not provide extra Linux privileges.
 - Use a harmless /usr/bin/id or /usr/bin/uname verification first. Never loosen roles or disable safety checks merely to pass a test.
 
+## Persistent jobs and binary transfer
+
+If a long command's initial MCP request finishes, use `job_status` with its
+returned job_id. Jobs persist in the **target device's** private state, so
+supply the same device_id on subsequent requests. Use `job_output` with
+`next_offset` to page through stdout or stderr. A job marked interrupted
+means its worker ended without a final result (for example, a reboot or a
+session-manager cleanup). It is not safe to assume the command succeeded.
+Use `cancel_job` to stop active jobs and `purge_job` only after termination.
+
+If an upload stops, use `upload_status(upload_id)` on the same target device
+to recover the correct offset. Each chunk must be base64-encoded and no
+larger than 131072 decoded bytes. A mismatched SHA-256 or changed target file
+causes `finish_upload` to refuse replacement; review the conflict rather
+than bypassing it. A pending upload expires after 24 hours. See
+[JOBS](JOBS.md) and [TRANSFERS](TRANSFERS.md) for details.
+
 ## systemd user service
 
 ~~~bash

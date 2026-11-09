@@ -182,11 +182,13 @@ Ask ChatGPT to use your plugin for the following checks in order:
 - When operator is configured, create a disposable file with write_text, read its SHA-256, and edit it with replace_text using expected_sha256.
 - Optionally inspect a harmless predefined command with preview_command before execute_command.
 - Only if deliberately enabled, test admin run_argv with /usr/bin/id. **Do not use privileged/destructive commands for initial testing.**
+- To verify durable execution, start_job with a harmless command, then use job_status and job_output after the initial MCP call returns; use purge_job when finished.
+- For binary transfer, test begin_upload, upload_chunk, upload_status, finish_upload, binary_file_info and read_binary_chunk with a disposable file. Verify the whole-file SHA-256. See [TRANSFERS](TRANSFERS.md).
 
 For details about write confirmations and the command model, read [SECURITY](SECURITY.md).
 
 ## 7. Operating limits and help
 
-The current agent has **11 tools** but no multi-user authentication, robust subprocess sandboxing, interactive PTY or resumable jobs. File calls are limited to 64 KiB of UTF-8 text. run_argv is limited to 60 seconds and 8 KiB per stdout/stderr stream. OpenAI Secure MCP Tunnel independently imposes rate, message-size and request-deadline limits; check its current documentation.
+The current agent has **24 tools** but no multi-user authentication, robust subprocess sandboxing, or interactive PTY. Text file tools remain limited to 64 KiB; resumable binary transfer supports 1 GiB files in bounded chunks. Direct run_argv is limited to 60 seconds, while persistent start_job tasks may run for up to 6 hours with output stored on the target device. See [JOBS](JOBS.md) and [TRANSFERS](TRANSFERS.md). OpenAI Secure MCP Tunnel independently imposes rate, message-size and request-deadline limits; check its current documentation.
 
 If tool discovery fails or the tunnel shows offline, see [TROUBLESHOOTING](TROUBLESHOOTING.md). The GitHub repository does not have access to your machines; every deployment is yours to configure and operate.

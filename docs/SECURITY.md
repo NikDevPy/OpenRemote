@@ -35,14 +35,38 @@ Tool annotations and a user's broad consent are not a substitute for specific au
 
 ## Identity and multi-user limitations
 
-**OpenRemote 0.3.1 does not authenticate individual callers at the agent layer.** The role is set globally in the private local configuration. Anyone who gains authorized access through the associated private MCP connection receives that server's configured capabilities, subject to ChatGPT and OS restrictions.
+**OpenRemote 0.4.0 does not authenticate individual callers at the agent layer.** The role is set globally in the private local configuration. Anyone who gains authorized access through the associated private MCP connection receives that server's configured capabilities, subject to ChatGPT and OS restrictions.
 
 This is not safe for multiple unrelated users, arbitrary shared workspaces, or public plugin submissions. A production multi-user deployment needs proper OAuth, subject-bound roles, device-specific authorization, approvals, revocation, and an auditable action identity. A public GitHub repository is fine; a publicly accessible unrestricted MCP server is not.
+
+## Persistent jobs and binary-transfer risks
+
+- Persistent jobs are executed as the agent's Linux account and continue after
+  the initiating MCP/SSH request ends. They require admin plus
+  `ad_hoc_enabled=true`. A private job state directory stores stdout/stderr
+  and results, which may contain credentials or sensitive command output.
+  Do not put secrets in command arguments, which may be observable via
+  process inspection while running.
+- Jobs are not interactive PTY sessions, are not isolated containers,
+  and do not automatically restart after reboot. The per-device safeguards
+  limit active jobs (8), stored jobs (250), runtime (6 hours) and output
+  (8 MiB per stream).
+- Binary uploads are staged within the approved workspace. Up to eight
+  pending sessions may remain on disk for 24 hours, using the configured OS
+  user's storage quota. The caller supplies a whole-file SHA-256; mismatches
+  are rejected at commit. Base64 request/response payloads can expose file
+  contents to the ChatGPT session and associated tool permissions.
+- For very large transfers between already trusted Linux machines, use
+  a direct verified SSH/SFTP transfer instead of passing file bytes through
+  the model context.
 
 ## File operation limits
 
 - Only approved workspace roots, owned by the configured OS user; no symlink path traversal.
-- read_text and replace_text use UTF-8 text; per-call file size limit is 64 KiB.
+- read_text and replace_text use UTF-8 text; per-call text limit is 64 KiB.
+- read_binary_chunk and upload_chunk support at most 128 KiB raw bytes per
+  call; the binary transfer limit is 1 GiB per file, with offset and
+  SHA-256 checks.
 - write_text creates new files but cannot overwrite existing files.
 - replace_text requires a SHA-256 of the content last read and uses a same-directory temporary file/atomic rename. This is **optimistic conflict detection**, not a fully atomic compare-and-swap against unrelated processes.
 - Some metadata, symlink/hard-link, race, ACL, ownership and filesystem-specific behaviors require further hardening for untrusted inputs. Do not expose host system directories as editable workspaces.

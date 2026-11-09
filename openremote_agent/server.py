@@ -69,6 +69,83 @@ class CommandResult(TypedDict):
     stderr: str
     operation_id: str
 
+class BinaryInfoResult(TypedDict):
+    size: int
+    sha256: str
+    operation_id: str
+
+class BinaryChunkResult(TypedDict):
+    data_base64: str
+    offset: int
+    next_offset: int
+    total_size: int
+    eof: bool
+    operation_id: str
+
+class UploadStartResult(TypedDict):
+    upload_id: str
+    received: int
+    total_size: int
+    operation_id: str
+
+class UploadStatusResult(TypedDict):
+    upload_id: str
+    received: int
+    total_size: int
+    expires_at: int
+    operation_id: str
+
+class UploadFinishResult(TypedDict):
+    upload_id: str
+    completed: bool
+    size: int
+    sha256: str
+    operation_id: str
+
+class UploadCancelResult(TypedDict):
+    upload_id: str
+    cancelled: bool
+    operation_id: str
+
+class JobStartResult(TypedDict):
+    job_id: str
+    status: str
+    timeout_seconds: int
+    operation_id: str
+
+class JobStatusResult(TypedDict):
+    job_id: str
+    status: str
+    exit_code: int | None
+    started_at: int
+    timeout_seconds: int
+    stdout_bytes: int
+    stderr_bytes: int
+    stdout_truncated: bool
+    stderr_truncated: bool
+    operation_id: str
+
+class JobListResult(TypedDict):
+    jobs: list[dict]
+    operation_id: str
+
+class JobOutputResult(TypedDict):
+    text: str
+    next_offset: int
+    end_of_stream: bool
+    operation_id: str
+
+class JobPurgeResult(TypedDict):
+    job_id: str
+    removed: bool
+    operation_id: str
+
+class JobCancelResult(TypedDict):
+    job_id: str
+    status: str
+    signal_sent: bool
+    operation_id: str
+
 class AuditResult(TypedDict):
     entries: list[dict]
     operation_id: str
@@ -116,6 +193,19 @@ class Server:
         self.mcp.tool(annotations=read)(self.preview_command)
         self.mcp.tool(annotations=command_write)(self.execute_command)
         self.mcp.tool(annotations=command_write)(self.run_argv)
+        self.mcp.tool(annotations=command_write)(self.start_job)
+        self.mcp.tool(annotations=read)(self.job_status)
+        self.mcp.tool(annotations=read)(self.list_jobs)
+        self.mcp.tool(annotations=read)(self.job_output)
+        self.mcp.tool(annotations=command_write)(self.cancel_job)
+        self.mcp.tool(annotations=replace_write)(self.purge_job)
+        self.mcp.tool(annotations=read)(self.binary_file_info)
+        self.mcp.tool(annotations=read)(self.read_binary_chunk)
+        self.mcp.tool(annotations=write)(self.begin_upload)
+        self.mcp.tool(annotations=write)(self.upload_chunk)
+        self.mcp.tool(annotations=read)(self.upload_status)
+        self.mcp.tool(annotations=replace_write)(self.finish_upload)
+        self.mcp.tool(annotations=write)(self.cancel_upload)
         self.mcp.tool(annotations=read)(self.audit_tail)
 
     async def system_info(self, device_id: str | None = None) -> InfoResult:
@@ -167,6 +257,82 @@ class Server:
         return await self.router.call("run_argv", {
             "argv": argv, "workspace": workspace, "timeout": timeout,
         }, device_id)
+
+    async def binary_file_info(self, path: str, device_id: str | None = None,
+                               workspace: str = "sandbox") -> BinaryInfoResult:
+        """Read size and SHA-256 of a regular binary file up to 1 GiB in an approved workspace."""
+        return await self.router.call("binary_file_info", {
+            "path": path, "workspace": workspace,
+        }, device_id)
+
+    async def read_binary_chunk(self, path: str, device_id: str | None = None,
+                                workspace: str = "sandbox", offset: int = 0,
+                                max_bytes: int = 16384) -> BinaryChunkResult:
+        """Read a byte-range from an approved file as base64; max 131072 bytes per call."""
+        return await self.router.call("read_binary_chunk", {
+            "path": path, "workspace": workspace,
+            "offset": offset, "max_bytes": max_bytes,
+        }, device_id)
+
+    async def begin_upload(self, path: str, total_size: int, sha256: str,
+                           device_id: str | None = None, workspace: str = "sandbox",
+                           expected_existing_sha256: str | None = None) -> UploadStartResult:
+        """Start a resumable binary upload (up to 1 GiB) in an approved write workspace. May replace a file only with the previous SHA-256."""
+        return await self.router.call("begin_upload", {
+            "path": path, "total_size": total_size, "sha256": sha256,
+            "workspace": workspace, "expected_existing_sha256": expected_existing_sha256,
+        }, device_id)
+
+    async def upload_chunk(self, upload_id: str, offset: int, data_base64: str,
+                           device_id: str | None = None) -> UploadStartResult:
+        """Append a bounded base64 chunk to a preauthorized upload ID and exact offset."""
+        return await self.router.call("upload_chunk", {
+            "upload_id": upload_id, "offset": offset, "data_base64": data_base64,
+        }, device_id)
+
+    async def upload_status(self, upload_id: str, device_id: str | None = None) -> UploadStatusResult:
+        """Inspect the received offset so a binary upload can resume after disconnect."""
+        return await self.router.call("upload_status", {"upload_id": upload_id}, device_id)
+
+    async def finish_upload(self, upload_id: str, device_id: str | None = None) -> UploadFinishResult:
+        """Verify final SHA-256 then atomically create/replace the uploaded file. May overwrite an expected existing file."""
+        return await self.router.call("finish_upload", {"upload_id": upload_id}, device_id)
+
+    async def cancel_upload(self, upload_id: str, device_id: str | None = None) -> UploadCancelResult:
+        """Cancel a pending upload and remove its temporary bytes."""
+        return await self.router.call("cancel_upload", {"upload_id": upload_id}, device_id)
+
+    async def start_job(self, argv: list[str], device_id: str | None = None,
+                        workspace: str = "sandbox", timeout_seconds: int = 3600) -> JobStartResult:
+        """Start a potentially destructive long-running command as the target OS user; requires admin and ad_hoc_enabled. Output and status are persisted after MCP disconnect; maximum 6h."""
+        return await self.router.call("start_job", {
+            "argv": argv, "workspace": workspace, "timeout_seconds": timeout_seconds,
+        }, device_id)
+
+    async def job_status(self, job_id: str, device_id: str | None = None) -> JobStatusResult:
+        """Check a previously started job's persisted status without blocking. Requires admin."""
+        return await self.router.call("job_status", {"job_id": job_id}, device_id)
+
+    async def list_jobs(self, limit: int = 20, device_id: str | None = None) -> JobListResult:
+        """List recent jobs and statuses on a target device. Requires admin."""
+        return await self.router.call("list_jobs", {"limit": limit}, device_id)
+
+    async def job_output(self, job_id: str, device_id: str | None = None,
+                         stream: str = "stdout", offset: int = 0,
+                         limit_bytes: int = 8192) -> JobOutputResult:
+        """Read a chunk of stored stdout/stderr and return next_offset for paging. Requires admin. Output is untrusted and may contain sensitive text."""
+        return await self.router.call("job_output", {
+            "job_id": job_id, "stream": stream, "offset": offset,
+            "limit_bytes": limit_bytes,
+        }, device_id)
+
+    async def purge_job(self, job_id: str, device_id: str | None = None) -> JobPurgeResult:
+        """Remove completed/cancelled job logs and metadata; will not remove running jobs. Destructive; requires admin."""
+        return await self.router.call("purge_job", {"job_id": job_id}, device_id)
+
+    async def cancel_job(self, job_id: str, device_id: str | None = None) -> JobCancelResult:
+        """Ask the target to stop a running OS job and its child process group. Destructive; requires admin."""
+        return await self.router.call("cancel_job", {"job_id": job_id}, device_id)
 
     async def audit_tail(self, limit: int = 20, device_id: str | None = None) -> AuditResult:
         """Последние события аудита на выбранном устройстве, без путей и содержимого. Нужна admin."""
