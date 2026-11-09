@@ -92,7 +92,70 @@ class GuiOffscreenTests(unittest.TestCase):
             badge = window.findChild(QLabel, "deviceStatus_rock")
             self.assertIsNotNone(badge)
             self.assertTrue(any(label in badge.text() for label in ("Online", "В сети")))
-            self.assertIn("#18A77A", badge.styleSheet())
+            self.assertIn("#079C62", badge.styleSheet())
+        finally:
+            window._closing = True
+            window.pool.waitForDone(5000)
+            window.close()
+            window.deleteLater()
+
+    def test_reference_controls_and_localization_are_real_widgets(self):
+        from openremote_gui.app import MainWindow
+        from openremote_gui.backend import Backend
+        from openremote_gui.visuals import IconBadge
+        from PySide6.QtWidgets import QPushButton, QCheckBox, QFrame
+        window = MainWindow(Backend(self.config))
+        try:
+            snapshot = window.backend.snapshot()
+            snapshot["peers"] = ["rock"]
+            window._snapshot = snapshot
+            window._peer_ready({"device_id": "rock", "online": True})
+            window.show_page(0)
+            self.app.processEvents()
+            self.assertGreaterEqual(len(window.findChildren(IconBadge)), 5)
+            self.assertGreaterEqual(len(window.findChildren(QFrame, "card")), 5)
+            check = window.findChild(QPushButton, "primary")
+            self.assertIsNotNone(check)
+            self.assertTrue(check.isEnabled())
+            self.assertIn("QPushButton#primary", window.styleSheet())
+            window.show_page(3)
+            self.app.processEvents()
+            picker = window.findChild(QPushButton, "languageSelect")
+            self.assertIsNotNone(picker)
+            self.assertIsNotNone(picker.menu())
+            self.assertEqual(len(picker.menu().actions()), 2)
+            self.assertIsNotNone(window.findChild(QCheckBox, "darkTheme"))
+            self.assertIsNotNone(window.findChild(QCheckBox, "autostartToggle"))
+            picker.menu().actions()[1].trigger()
+            self.app.processEvents()
+            self.assertEqual(window.language, "en")
+            self.assertEqual(window.page_headings[3][0].text(), "Preferences")
+        finally:
+            window._closing = True
+            window.pool.waitForDone(5000)
+            window.close()
+            window.deleteLater()
+
+    def test_small_window_metrics_reflow(self):
+        from openremote_gui.app import MainWindow
+        from openremote_gui.backend import Backend
+        from PySide6.QtWidgets import QFrame
+        window = MainWindow(Backend(self.config))
+        try:
+            window.resize(900, 630)
+            sample = window.backend.snapshot()
+            window._snapshot = sample
+            window.show_page(0)
+            self.app.processEvents()
+            grid = window.page_layouts[0].itemAt(0).layout()
+            self.assertIsNotNone(grid)
+            self.assertGreaterEqual(grid.rowCount(), 2)
+            self.assertEqual(grid.columnCount(), 2)
+            window.resize(1250, 850)
+            self.app.processEvents()
+            window.render_pages()
+            grid = window.page_layouts[0].itemAt(0).layout()
+            self.assertEqual(grid.columnCount(), 3)
         finally:
             window._closing = True
             window.pool.waitForDone(5000)

@@ -2,6 +2,8 @@
 
 ![OpenRemote Control Center — sanitized demo](assets/control-center-light.png)
 
+The screenshot is from real Qt widgets with **synthetic demonstration data**, not a real online-device assertion. For the Russian settings screen, see [the final design QA](DESIGN_QA.md).
+
 The Control Center is a minimal, Apple-inspired desktop dashboard. It is
 **optional**: the OpenRemote gateway and SSH peers work entirely headless.
 The GUI is a separate user process and has no access to OpenAI runtime keys.
@@ -102,3 +104,9 @@ An experimental `.deb` setup path now exists, including a six-step
 OpenAI tunnel wizard and installed application icon. It avoids manual JSON
 edits and starts with safe viewer permissions. Read
 [ONBOARDING](ONBOARDING.md) for screenshots, dependencies and limitations.
+
+
+## Design QA
+
+For the two approved desktop visual references, detailed visual checks,
+RU/EN theme screenshots and accessibility limits, see [DESIGN_QA](DESIGN_QA.md).

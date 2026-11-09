@@ -14,7 +14,7 @@ import sys
 import time
 
 try:
-    from PySide6.QtCore import Qt, QTimer, QObject, Signal, QRunnable, QThreadPool, QLockFile, QSettings
+    from PySide6.QtCore import Qt, QSize, QTimer, QObject, Signal, QRunnable, QThreadPool, QLockFile, QSettings
     from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap, QAction, QPalette
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout,
@@ -32,26 +32,27 @@ from openremote_agent import __version__
 from .backend import Backend
 from .desktop import autostart_enabled, launcher_installed, set_autostart
 from .i18n import STRINGS, LANGUAGES, translate
+from .visuals import IconBadge, icon as vector_icon
 
 
 THEMES = {
     "light": {
-        "background": "#F7F8FB", "sidebar": "#F0F2F8", "surface": "#FFFFFF",
-        "border": "#E8EAF1", "text": "#1C2434", "muted": "#738092",
-        "accent": "#7465E9", "accent_soft": "#EEEAFE", "positive": "#18A77A",
-        "positive_soft": "#E7F8F2", "warning": "#C48C31",
-        "warning_soft": "#FFF5E1", "negative": "#D44F5E",
-        "negative_soft": "#FDEDF0", "hover": "#E5E8F1",
-        "neutral_soft": "#ECEFF3", "neutral": "#7A8594",
+        "background": "#F4F3FB", "sidebar": "#F3F0FC", "surface": "#FFFFFF",
+        "border": "#DFDCF1", "text": "#171B36", "muted": "#71728E",
+        "accent": "#7555EA", "accent_soft": "#EDE5FF", "positive": "#079C62",
+        "positive_soft": "#DDF7E8", "warning": "#A8792C",
+        "warning_soft": "#FFF4D9", "negative": "#CC4E61",
+        "negative_soft": "#FFE7ED", "hover": "#E5DDFB",
+        "neutral_soft": "#F0EFF7", "neutral": "#6F728E",
     },
     "dark": {
-        "background": "#171C26", "sidebar": "#1D2330", "surface": "#272E3B",
-        "border": "#383F4E", "text": "#F3F5F9", "muted": "#B3B9C6",
-        "accent": "#ACA2FF", "accent_soft": "#37314F", "positive": "#59D3A6",
-        "positive_soft": "#233F39", "warning": "#F3C371",
-        "warning_soft": "#43392C", "negative": "#F48B96",
-        "negative_soft": "#4A303B", "hover": "#353D4E",
-        "neutral_soft": "#353C49", "neutral": "#B3B9C6",
+        "background": "#181A2B", "sidebar": "#202137", "surface": "#25263D",
+        "border": "#46435E", "text": "#F5F3FF", "muted": "#B8B3CE",
+        "accent": "#B19AFF", "accent_soft": "#3A3359", "positive": "#64DDB2",
+        "positive_soft": "#234638", "warning": "#F1C77D",
+        "warning_soft": "#4A3A28", "negative": "#F79EAC",
+        "negative_soft": "#51323E", "hover": "#3F385D",
+        "neutral_soft": "#333347", "neutral": "#C1BAD5",
     },
 }
 
@@ -103,6 +104,11 @@ def clear(layout):
         item = layout.takeAt(0)
         widget = item.widget()
         if widget is not None:
+            # A stale child can remain paintable until Qt delivers DeferredDelete.
+            # Detach it *now* to prevent ghost cards during rapid refresh/theme/page
+            # switches and avoid overlapping controls in Wayland/offscreen Qt.
+            widget.hide()
+            widget.setParent(None)
             widget.deleteLater()
         elif item.layout():
             clear(item.layout())
@@ -124,9 +130,9 @@ def card(title: str | None = None, *, shadow: bool = True):
     layout.setSpacing(9)
     if shadow:
         effect = QGraphicsDropShadowEffect(pane)
-        effect.setBlurRadius(20)
-        effect.setOffset(0, 4)
-        effect.setColor(QColor(30, 38, 66, 10))
+        effect.setBlurRadius(18)
+        effect.setOffset(0, 3)
+        effect.setColor(QColor(74, 60, 131, 14))
         pane.setGraphicsEffect(effect)
     if title:
         layout.addWidget(text_label(title, "cardTitle"))
@@ -162,8 +168,8 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("OpenRemote")
         self.setWindowIcon(icon())
-        self.resize(1080, 750)
-        self.setMinimumSize(810, 575)
+        self.resize(1210, 805)
+        self.setMinimumSize(900, 610)
         self._build()
         self.set_theme()
         self._tray()
@@ -187,9 +193,9 @@ class MainWindow(QMainWindow):
 
         side = QFrame()
         side.setObjectName("sidebar")
-        side.setFixedWidth(224)
+        side.setFixedWidth(272)
         nav = QVBoxLayout(side)
-        nav.setContentsMargins(19, 26, 19, 25)
+        nav.setContentsMargins(22, 28, 20, 25)
         nav.setSpacing(9)
         brand = QHBoxLayout()
         brand.setSpacing(11)
@@ -202,16 +208,16 @@ class MainWindow(QMainWindow):
         brand.addWidget(label)
         brand.addStretch()
         nav.addLayout(brand)
-        nav.addSpacing(37)
+        nav.addSpacing(42)
 
         self.nav_buttons = []
-        for i, glyph in enumerate(("◈", "▤", "⇄", "⚙")):
+        for i, glyph in enumerate(("monitor", "jobs", "transfers", "settings")):
             button = QPushButton()
             button.setObjectName("nav")
             button.setProperty("glyph", glyph)
             button.setCheckable(True)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setMinimumHeight(43)
+            button.setMinimumHeight(47)
             button.clicked.connect(lambda checked=False, n=i: self.show_page(n))
             nav.addWidget(button)
             self.nav_buttons.append(button)
@@ -226,11 +232,12 @@ class MainWindow(QMainWindow):
         main = QFrame()
         main.setObjectName("main")
         container = QVBoxLayout(main)
-        container.setContentsMargins(33, 26, 35, 22)
-        container.setSpacing(19)
+        container.setContentsMargins(40, 30, 40, 24)
+        container.setSpacing(23)
 
         header = QHBoxLayout()
         self.header_label = text_label("", "eyebrow")
+        self.header_label.setWordWrap(False)
         header.addWidget(self.header_label)
         header.addStretch()
         self.health_badge = QLabel()
@@ -270,7 +277,7 @@ class MainWindow(QMainWindow):
             inner = QWidget()
             inner.setObjectName("scrollContent")
             body = QVBoxLayout(inner)
-            body.setContentsMargins(2, 4, 8, 11)
+            body.setContentsMargins(4, 5, 13, 12)
             body.setSpacing(15)
             body.setAlignment(Qt.AlignmentFlag.AlignTop)
             scroll.setWidget(inner)
@@ -295,12 +302,12 @@ class MainWindow(QMainWindow):
         names = ("devices_nav", "activity_nav", "transfers_nav", "settings_nav")
         for i, name in enumerate(names):
             glyph = self.nav_buttons[i].property("glyph")
-            self.nav_buttons[i].setText(f"  {glyph}     {self.tr(name)}")
+            self.nav_buttons[i].setText("  " + self.tr(name))
         for i, (header, subtitle) in enumerate(self.page_headings):
             header.setText(self.tr(self.TITLES[i][0]))
             subtitle.setText(self.tr(self.TITLES[i][1]))
         self.header_label.setText(self.tr("control_center"))
-        self.refresh_button.setText("↻  " + self.tr("refresh"))
+        self.refresh_button.setText(self.tr("refresh"))
         self.side_caption.setText(self.tr("private_connection"))
         self.version_caption.setText(self.tr("version", version=__version__))
         self.footer_right.setText(self.tr("private_tunnel"))
@@ -377,7 +384,19 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentIndex(index)
         for i, button in enumerate(self.nav_buttons):
             button.setChecked(i == index)
+            c = THEMES["dark" if self.dark else "light"]
+            button.setIcon(vector_icon(("monitor", "jobs", "transfers", "settings")[i],
+                                       c["accent"] if i == index else c["muted"], 23))
+            button.setIconSize(QSize(23,23))
         self.render_pages()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "pages") and self.pages.currentIndex() == 0 and self._snapshot:
+            columns = 3 if self.width() >= 1110 else 2
+            if columns != getattr(self, "_last_metric_columns", None):
+                self._last_metric_columns = columns
+                QTimer.singleShot(0, self.render_pages)
 
     def _periodic_refresh(self):
         # A hidden GUI is essentially idle. Only refresh when somebody is
@@ -387,91 +406,101 @@ class MainWindow(QMainWindow):
 
     def set_theme(self):
         c = THEMES["dark" if self.dark else "light"]
-        # The former app styled the QScrollArea but left its viewport and
-        # scrollContent with the desktop's default dark palette. Explicitly
-        # style every surface to avoid light cards on black rectangles.
         palette = self.palette()
         palette.setColor(QPalette.ColorRole.Window, QColor(c["background"]))
-        palette.setColor(QPalette.ColorRole.Base, QColor(c["background"]))
+        palette.setColor(QPalette.ColorRole.Base, QColor(c["surface"]))
+        palette.setColor(QPalette.ColorRole.Text, QColor(c["text"]))
         palette.setColor(QPalette.ColorRole.WindowText, QColor(c["text"]))
         self.setPalette(palette)
+        check_icon = (Path(__file__).parent / "assets" / "check.svg").as_posix()
         self.setStyleSheet(f"""
             QWidget#root, QWidget#page, QWidget#scrollContent,
             QFrame#main, QScrollArea#scroll {{
-                background-color: {c['background']};
-                border: none;
+                background: {c['background']}; border: none;
             }}
             QScrollArea#scroll > QWidget, QScrollArea#scroll QWidget#qt_scrollarea_viewport {{
-                background-color: {c['background']};
-                border: none;
+                background: {c['background']}; border: none;
             }}
-            QFrame#sidebar {{
-                background-color: {c['sidebar']};
-                border: none; border-right: 1px solid {c['border']};
-            }}
-            QLabel {{ color: {c['text']}; font-size: 13px; background: transparent; }}
-            QLabel#brand {{ font-size: 17px; font-weight: 700; }}
-            QLabel#pageTitle {{ font-size: 31px; font-weight: 700; }}
-            QLabel#cardTitle {{ font-size: 15px; font-weight: 700; }}
-            QLabel#muted {{ color: {c['muted']}; font-size: 12px; }}
-            QLabel#micro {{ color: {c['muted']}; font-size: 11px; }}
-            QLabel#eyebrow {{ color: {c['muted']}; font-size: 10px; font-weight: 700; }}
-            QLabel#metric {{ font-size: 22px; font-weight: 700; }}
-            QLabel#healthBadge {{
-                background-color: {c['positive_soft']}; color: {c['positive']};
-                padding: 7px 14px; border-radius: 16px; font-weight: 700;
-            }}
-            QFrame#card {{
-                background-color: {c['surface']}; border-radius: 18px;
-                border: 1px solid {c['border']};
-            }}
-            QPushButton {{
-                border: 1px solid {c['border']}; border-radius: 11px;
-                padding: 10px 13px; background-color: {c['surface']};
-                color: {c['text']}; font-weight: 600;
-            }}
-            QPushButton:hover {{ background-color: {c['hover']}; }}
-            QPushButton:disabled {{ color: {c['muted']}; opacity: .5; }}
-            QPushButton#nav {{
-                border: none; text-align: left; padding: 12px 13px;
-                background-color: transparent; font-size: 13px;
-            }}
-            QPushButton#nav:checked {{
-                background-color: {c['accent_soft']}; color: {c['accent']};
-            }}
-            QPushButton#nav:hover:!checked {{ background-color: {c['hover']}; }}
-            QCheckBox {{ color: {c['text']}; spacing: 10px; font-size: 13px; }}
-            QComboBox {{
-                border: 1px solid {c['border']}; border-radius: 11px;
-                padding: 9px 13px; min-height: 26px; min-width: 145px;
-                background-color: {c['surface']}; color: {c['text']};
-            }}
-            QComboBox QAbstractItemView {{
-                border: 1px solid {c['border']};
-                background-color: {c['surface']}; color: {c['text']};
-                selection-background-color: {c['accent_soft']};
-                selection-color: {c['text']};
-            }}
-            QProgressBar {{
-                background-color: {c['sidebar']}; border: none;
-                border-radius: 5px; min-height: 9px; max-height: 9px;
-            }}
-            QProgressBar::chunk {{
-                background-color: {c['accent']}; border-radius: 5px;
-            }}
-            QScrollBar:vertical {{ background: transparent; width: 7px; }}
-            QScrollBar::handle:vertical {{
-                background-color: {c['border']}; border-radius: 3px; min-height: 27px;
-            }}
+            QFrame#sidebar {{ background: {c['sidebar']}; border: none;
+                border-right: 1px solid {c['border']}; }}
+            QLabel {{ color: {c['text']}; font-size: 15px; background: transparent; }}
+            QLabel#brand {{ font-size: 19px; font-weight: 800; }}
+            QLabel#pageTitle {{ font-size: 40px; font-weight: 800; }}
+            QLabel#cardTitle {{ font-size: 19px; font-weight: 750; }}
+            QLabel#muted {{ color: {c['muted']}; font-size: 15px; }}
+            QLabel#micro {{ color: {c['muted']}; font-size: 13px; }}
+            QLabel#eyebrow {{ color: {c['muted']}; font-size: 12px; font-weight: 700; }}
+            QLabel#metric {{ font-size: 27px; font-weight: 800; }}
+            QLabel#healthBadge {{ background: {c['positive_soft']};
+                color: {c['positive']}; border-radius: 18px; padding: 9px 16px;
+                font-weight: 750; font-size: 15px; }}
+            QFrame#card {{ background: {c['surface']}; border-radius: 19px;
+                border: 1px solid {c['border']}; }}
+            QPushButton {{ background: {c['surface']}; color: {c['text']};
+                font-size: 14px; font-weight: 700; border-radius: 12px;
+                border: 1px solid {c['border']}; padding: 11px 17px; }}
+            QPushButton:hover {{ background: {c['hover']}; border-color: {c['accent']}; }}
+            QPushButton:pressed {{ background: {c['accent_soft']}; }}
+            QPushButton:disabled {{ color: {c['muted']};
+                background: {c['neutral_soft']}; border-color: {c['border']}; }}
+            QPushButton#primary {{ background: {c['accent']}; color: {'#FFFFFF' if not self.dark else '#171324'};
+                border: 1px solid {c['accent']}; border-radius: 12px;
+                min-height: 22px; padding: 10px 17px; }}
+            QPushButton#primary:hover {{ background: {'#6040DB' if not self.dark else '#CFBBFF'};
+                border-color: {'#6040DB' if not self.dark else '#CFBBFF'}; }}
+            QPushButton#primary:disabled {{ background: {c['neutral_soft']};
+                border-color: {c['border']}; color: {c['muted']}; }}
+            QPushButton#nav {{ border: none; border-radius: 13px;
+                text-align: left; padding: 11px 16px; min-height: 25px;
+                background: transparent; font-size: 16px; }}
+            QPushButton#nav:checked {{ background: {c['accent_soft']};
+                color: {c['accent']}; font-weight: 750; }}
+            QPushButton#nav:hover:!checked {{ background: {c['hover']}; }}
+            QPushButton#languageSelect {{ background: {c['surface']};
+                border: 1px solid {c['border']}; border-radius: 12px;
+                padding: 11px 18px; min-width: 174px; text-align: left; }}
+            QMenu {{ background: {c['surface']}; color: {c['text']};
+                border: 1px solid {c['border']}; border-radius: 12px;
+                padding: 7px; font-size: 15px; }}
+            QMenu::item {{ padding: 10px 27px 10px 14px;
+                background: transparent; border-radius: 7px; }}
+            QPushButton::menu-indicator {{ width: 15px; height: 15px; subcontrol-position: right center; }}
+            QMenu::item:selected {{ background: {c['accent_soft']};
+                color: {c['accent']}; }}
+            QCheckBox {{ color: {c['text']}; spacing: 11px; font-size: 15px; }}
+            QCheckBox::indicator {{ width: 19px; height: 19px;
+                background: {c['surface']}; border: 1px solid {c['border']};
+                border-radius: 6px; }}
+            QCheckBox::indicator:hover {{ border-color: {c['accent']}; }}
+            QCheckBox::indicator:checked {{
+                background: {c['accent']}; border: 1px solid {c['accent']};
+                image: url("{check_icon}"); }}
+            QCheckBox::indicator:disabled {{ background: {c['neutral_soft']}; }}
+            QProgressBar {{ background: {c['sidebar']}; border: none;
+                border-radius: 5px; min-height: 9px; max-height: 9px; }}
+            QProgressBar::chunk {{ background: {c['accent']}; border-radius: 5px; }}
+            QScrollBar:vertical {{ background: transparent; border: none; width: 7px;
+                margin: 2px 1px 2px 1px; }}
+            QScrollBar::handle:vertical {{ background: {c['border']};
+                border: none; border-radius: 3px; min-height: 28px; }}
+            QScrollBar::handle:vertical:hover {{ background: {c['muted']}; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px; width: 0px; background: transparent; border: none; }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: transparent; border: none; }}
         """)
+        icons = ("monitor", "jobs", "transfers", "settings")
+        for i, button in enumerate(self.nav_buttons):
+            button.setIcon(vector_icon(icons[i], c["accent"] if button.isChecked()
+                                      else c["muted"], 23))
+            button.setIconSize(QSize(23, 23))
+        self.refresh_button.setIcon(vector_icon("refresh", c["text"], 21))
+        self.refresh_button.setIconSize(QSize(20,20))
         for scroll in self.scrollers:
             scroll.viewport().setPalette(palette)
             scroll.viewport().setAutoFillBackground(True)
             scroll.widget().setPalette(palette)
             scroll.widget().setAutoFillBackground(True)
-            scroll.viewport().setStyleSheet(f"background: {c['background']}; border: none;")
-            scroll.widget().setStyleSheet(
-                f"QWidget#scrollContent {{ background: {c['background']}; border: none; }}")
         self.render_pages()
 
     def refresh(self):
@@ -575,46 +604,55 @@ class MainWindow(QMainWindow):
         label.setMinimumHeight(31)
         label.setStyleSheet(
             f"QLabel {{ color: {fg}; background-color: {bg}; "
-            "border-radius: 14px; padding: 5px 12px; font-size: 11px; "
+            "border-radius: 14px; padding: 5px 12px; font-size: 13px; "
             "font-weight: 700; }")
         label.setAccessibleName(title)
         return label
 
     def _devices(self, s):
         body = self.page_layouts[0]
+        c = THEMES["dark" if self.dark else "light"]
         metrics = QGridLayout()
-        metrics.setSpacing(13)
-        rows = [
-            ("gateway", "ready" if s["tunnel_ready"] else "unavailable"),
-            ("workspace_count", str(s["workspaces"])),
-            ("system_load", s["load"]),
+        metrics.setSpacing(14)
+        details = [
+            ("server", "gateway", self.tr("ready") if s["tunnel_ready"] else self.tr("unavailable")),
+            ("folder", "workspace_count", str(s["workspaces"])),
+            ("cpu", "system_load", s["load"]),
         ]
-        for i, (label_key, value) in enumerate(rows):
+        columns = 3 if self.width() >= 1110 else 2
+        for i, (glyph, key, value) in enumerate(details):
             pane, layout = card()
-            layout.setSpacing(12)
-            layout.addWidget(text_label(self.tr(label_key), "eyebrow"))
-            layout.addWidget(
-                text_label(self.tr(value) if value in ("ready", "unavailable") else value, "metric"))
-            metrics.addWidget(pane, 0, i)
+            pane.setMinimumHeight(112)
+            metric_row = QHBoxLayout()
+            metric_row.setSpacing(16)
+            accent = c["positive"] if i == 0 and s["tunnel_ready"] else c["accent"]
+            bg = c["positive_soft"] if i == 0 and s["tunnel_ready"] else c["accent_soft"]
+            metric_row.addWidget(IconBadge(glyph, accent, bg, 49))
+            info = QVBoxLayout()
+            info.setSpacing(5)
+            info.addWidget(text_label(self.tr(key), "eyebrow"))
+            metric = text_label(value, "metric")
+            metric.setWordWrap(False)
+            info.addWidget(metric)
+            metric_row.addLayout(info, 1)
+            layout.addLayout(metric_row)
+            metrics.addWidget(pane, i // columns, i % columns)
         body.addLayout(metrics)
-        body.addSpacing(4)
+        body.addSpacing(9)
         body.addWidget(text_label(self.tr("registered_devices"), "cardTitle"))
 
         for name, is_local in [(s["local_id"], True)] + [(x, False) for x in s["peers"]]:
             pane, layout = card()
+            pane.setObjectName("card")
+            pane.setMinimumHeight(111 if is_local else 150)
+            layout.setSpacing(14)
             row = QHBoxLayout()
-            row.setSpacing(12)
-            badge = QLabel("◆")
-            badge.setObjectName("deviceSymbol_" + name)
-            badge.setFixedSize(40, 40)
-            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            c = THEMES["dark" if self.dark else "light"]
-            badge.setStyleSheet(
-                f"background: {c['accent_soft']}; color: {c['accent']}; "
-                "border-radius: 13px; font-size: 18px;")
-            row.addWidget(badge)
+            row.setSpacing(17)
+            glyph = IconBadge("monitor", c["accent"], c["accent_soft"], 56)
+            glyph.setObjectName("deviceSymbol_" + name)
+            row.addWidget(glyph)
             labels = QVBoxLayout()
-            labels.setSpacing(3)
+            labels.setSpacing(6)
             heading = text_label(name, "cardTitle")
             heading.setWordWrap(False)
             labels.addWidget(heading)
@@ -626,34 +664,34 @@ class MainWindow(QMainWindow):
                 state = data["state"]
                 checked = data.get("checked")
                 if state == "online" and checked and (time.time() - checked > 90):
-                    state = "configured"  # Never claim current connectivity from stale evidence.
+                    state = "configured"
                 if checked:
-                    checked_time = datetime.fromtimestamp(checked).strftime("%H:%M:%S")
-                    description = self.tr("last_verified", time=checked_time) if data["state"] == "online" else (
-                        self.tr("probe_failed"))
+                    when = datetime.fromtimestamp(checked).strftime("%H:%M:%S")
+                    description = (self.tr("last_verified", time=when) if data["state"] == "online"
+                                   else self.tr("probe_failed"))
                 else:
-                    description = self.tr("probe_started") if state == "checking" else (
-                        self.tr("not_probed"))
+                    description = (self.tr("probe_started") if state == "checking"
+                                   else self.tr("not_probed"))
             labels.addWidget(text_label(description, "muted"))
-            row.addLayout(labels)
-            row.addStretch()
+            row.addLayout(labels, 1)
             label_key = "local" if is_local and state == "local" else state
-            pill = self._status_pill(
-                state, self.tr(label_key),
-                "deviceStatus_" + name)
-            row.addWidget(pill)
+            pill = self._status_pill(state, self.tr(label_key), "deviceStatus_" + name)
+            row.addWidget(pill, alignment=Qt.AlignmentFlag.AlignTop)
             layout.addLayout(row)
             if not is_local:
                 control = QHBoxLayout()
-                control.addSpacing(52)
+                control.addSpacing(73)
                 action = QPushButton(self.tr("probe_again") if name in self._peer_health
                                      else self.tr("probe_action"))
-                action.setObjectName("secondary")
-                action.setMinimumWidth(148)
+                action.setObjectName("primary")
+                action.setMinimumHeight(39)
+                action.setMinimumWidth(193)
                 action.setCursor(Qt.CursorShape.PointingHandCursor)
+                action.setIcon(vector_icon("refresh", "#FFFFFF" if not self.dark else "#171324", 20))
+                action.setIconSize(QSize(19,19))
                 action.setEnabled(name not in self._probing)
                 action.clicked.connect(lambda checked=False, n=name: self.probe(n))
-                control.addWidget(action)
+                control.addWidget(action, alignment=Qt.AlignmentFlag.AlignLeft)
                 control.addStretch()
                 layout.addLayout(control)
             body.addWidget(pane)
@@ -716,24 +754,45 @@ class MainWindow(QMainWindow):
             body.addWidget(pane)
         body.addWidget(text_label(self.tr("uploads_remote_note"), "micro"))
 
+    def _section_header(self, key: str, glyph: str):
+        c = THEMES["dark" if self.dark else "light"]
+        row = QHBoxLayout()
+        row.setSpacing(14)
+        row.addWidget(IconBadge(glyph, c["accent"], c["accent_soft"], 45))
+        title = text_label(self.tr(key), "cardTitle")
+        title.setWordWrap(False)
+        row.addWidget(title, 1)
+        row.addStretch(0)
+        return row
+
     def _settings(self, s):
         body = self.page_layouts[3]
-        pane, layout = card(self.tr("appearance"))
+        c = THEMES["dark" if self.dark else "light"]
+        pane, layout = card()
+        layout.setSpacing(15)
+        layout.addLayout(self._section_header("appearance", "monitor"))
+
         lang_row = QHBoxLayout()
         lang_row.addWidget(text_label(self.tr("language"), "cardTitle"))
         lang_row.addStretch()
-        language_select = QComboBox()
-        language_select.setObjectName("languageSelect")
-        language_select.addItem("Русский", "ru")
-        language_select.addItem("English", "en")
-        language_select.setCurrentIndex(0 if self.language == "ru" else 1)
-        language_select.currentIndexChanged.connect(
-            lambda index, combo=language_select: self._language_change(combo.itemData(index)))
-        lang_row.addWidget(language_select)
+        pick = QPushButton(("🇷🇺   Русский" if self.language == "ru"
+                            else "🇬🇧   English"))
+        pick.setObjectName("languageSelect")
+        pick.setCursor(Qt.CursorShape.PointingHandCursor)
+        pick.setMinimumWidth(198)
+        pick.setMinimumHeight(42)
+        menu = QMenu(pick)
+        for value, title in (("ru", "🇷🇺   Русский"), ("en", "🇬🇧   English")):
+            action = menu.addAction(("✓   " if value == self.language else "     ") + title)
+            action.triggered.connect(lambda checked=False, v=value: self._language_change(v))
+        pick.setMenu(menu)
+        lang_row.addWidget(pick)
         layout.addLayout(lang_row)
+
         theme = QCheckBox(self.tr("dark"))
         theme.setObjectName("darkTheme")
         theme.setChecked(self.dark)
+        theme.setMinimumHeight(29)
         theme.toggled.connect(self._dark_change)
         layout.addWidget(theme)
 
@@ -741,38 +800,56 @@ class MainWindow(QMainWindow):
         autostart.setObjectName("autostartToggle")
         autostart.setChecked(autostart_enabled())
         autostart.setEnabled(launcher_installed())
+        autostart.setMinimumHeight(29)
         autostart.toggled.connect(self._startup_change)
         layout.addWidget(autostart)
         if not launcher_installed():
             layout.addWidget(text_label(self.tr("startup_missing"), "micro"))
-        layout.addWidget(text_label(self.tr("tray_tip")))
+        layout.addWidget(text_label(self.tr("tray_tip"), "muted"))
         layout.addWidget(text_label(self.tr("interval_tip"), "micro"))
         body.addWidget(pane)
 
-        pane, layout = card(self.tr("connection"))
-        row = QHBoxLayout()
-        row.addWidget(text_label(self.tr("agent_role") + ":"))
-        row.addStretch()
-        row.addWidget(text_label(s["role"], "cardTitle"))
-        layout.addLayout(row)
-        row = QHBoxLayout()
-        row.addWidget(text_label(self.tr("ad_hoc") + ":"))
-        row.addStretch()
-        row.addWidget(text_label(
-            self.tr("enabled") if s["ad_hoc"] else self.tr("disabled"), "cardTitle"))
-        layout.addLayout(row)
-        layout.addWidget(text_label(self.tr("memory") + ": " + s["memory"]))
-        layout.addWidget(text_label(self.tr("config_description"), "micro"))
-        layout.addWidget(text_label(str(self.backend.config_path), "micro"))
+        pane, layout = card()
+        layout.setSpacing(13)
+        layout.addLayout(self._section_header("connection", "server"))
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(20)
+        grid.setVerticalSpacing(11)
+        grid.setColumnStretch(0, 0)
+        grid.setColumnStretch(1, 1)
+        for row, (key, value) in enumerate((
+            ("agent_role", s["role"]),
+            ("ad_hoc", self.tr("enabled") if s["ad_hoc"] else self.tr("disabled")),
+            ("memory", s["memory"]),
+        )):
+            label = text_label(self.tr(key) + ":", "muted")
+            label.setMinimumWidth(260)
+            label.setMinimumHeight(28)
+            label.setWordWrap(False)
+            info = text_label(value, "cardTitle" if row < 2 else "muted")
+            info.setMinimumHeight(28)
+            info.setWordWrap(False)
+            grid.setRowMinimumHeight(row, 30)
+            grid.addWidget(label, row, 0)
+            grid.addWidget(info, row, 1)
+        layout.addLayout(grid)
+        layout.addWidget(text_label(self.tr("config_description"), "muted"))
+        path = text_label(str(self.backend.config_path), "micro")
+        path.setWordWrap(True)
+        layout.addWidget(path)
         copy = QPushButton(self.tr("copy_config"))
         copy.setObjectName("secondary")
+        copy.setMinimumHeight(39)
+        copy.setIcon(vector_icon("copy", c["accent"], 20))
+        copy.setIconSize(QSize(18,18))
         copy.clicked.connect(lambda: QApplication.clipboard().setText(
             str(self.backend.config_path)))
         layout.addWidget(copy, alignment=Qt.AlignmentFlag.AlignLeft)
         body.addWidget(pane)
 
-        pane, layout = card(self.tr("privacy"))
-        layout.addWidget(text_label(self.tr("privacy_tip")))
+        pane, layout = card()
+        layout.addLayout(self._section_header("privacy", "shield"))
+        layout.addWidget(text_label(self.tr("privacy_tip"), "muted"))
         body.addWidget(pane)
 
     def _language_change(self, language: str):
@@ -812,9 +889,9 @@ def _single_instance(name):
         socket = QLocalSocket()
         socket.connectToServer(name)
         if socket.waitForConnected(500):
-            socket.write(b"SHOW")
-            socket.flush()
-            socket.waitForBytesWritten(500)
+            # The existing Qt window is raised on QLocalServer.newConnection;
+            # no payload is required. Avoid writing to a socket whose peer
+            # already disconnected, which produced misleading Qt warnings.
             socket.disconnectFromServer()
         return None, None
     QLocalServer.removeServer(name)

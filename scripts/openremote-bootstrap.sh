@@ -3,7 +3,7 @@
 set -eu
 umask 077
 
-PKG_VERSION="0.6.1"
+PKG_VERSION="0.6.2"
 WHEEL_DIR="${OPENREMOTE_ASSET_ROOT:-/usr/share/openremote}"
 USER_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/openremote-control-center"
 USER_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/openremote-control-center"

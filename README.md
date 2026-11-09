@@ -16,7 +16,7 @@
 - **Parallel chats:** SQLite WAL, per-target file locks, bounded OS command slots, and optional task labels/idempotency keys prevent common conflicts between independent conversations.
 - **Optional Linux desktop GUI:** a minimal dashboard with device checks, jobs, transfers, light/dark appearance, and minimize-to-tray on supported desktops.
 
-**Current development version:** 0.6.1, Linux only, Python 3.11+, MCP SDK 1.29.0. This project is under active development and is not a production-grade multi-user remote-administration service.
+**Current development version:** 0.6.2, Linux only, Python 3.11+, MCP SDK 1.29.0. This project is under active development and is not a production-grade multi-user remote-administration service.
 
 ## Install and connect in six steps — Linux .deb preview
 
@@ -55,6 +55,8 @@ package, though a true system \`dpkg\` installation requires administrator right
 ## Optional desktop Control Center
 
 ![OpenRemote desktop Control Center (sanitized example)](docs/assets/control-center-light.png)
+
+*Demo screenshot uses synthetic device and connection data.*
 
 On a supported Linux graphical desktop, install the optional GUI with
 `python -m pip install '.[gui]'`, then run `openremote-gui --config
@@ -164,6 +166,7 @@ A public **GitHub repository** does not create a public **plugin**. Every person
 - **[TRANSFERS — resumable binary files, SHA-256, chunking](docs/TRANSFERS.md)**
 - **[MULTI_CHAT — concurrency safety and benchmarks](docs/MULTI_CHAT.md)**
 - **[GUI — lightweight Qt tray app](docs/GUI.md)**
+- **[DESIGN QA — bilingual reference screenshots, interaction and contrast checks](docs/DESIGN_QA.md)**
 - [Owner-control technical notes](docs/owner-control.md)
 - [SSH routing design notes](docs/ssh-routing.md)
 - [Historical probe and compatibility research](docs/compatibility.md)
