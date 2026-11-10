@@ -109,6 +109,34 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             load_config(cfg)
 
+    async def test_desktop_disabled_by_default(self):
+        self.agent.close()
+        self.agent = Agent(Config("terra", self.root, self.state, "admin"))
+        state = self.agent.desktop_status()
+        self.assertFalse(state["desktop_enabled"])
+        self.assertFalse(state["connected"])
+        with self.assertRaises(PermissionError):
+            self.agent.desktop_connect()
+        with self.assertRaises(PermissionError):
+            self.agent.desktop_screenshot()
+        with self.assertRaises(PermissionError):
+            self.agent.desktop_click(1, 1)
+        self.assertTrue(self.agent.desktop_disconnect()["disconnected"])
+
+    async def test_desktop_config_requires_explicit_opt_in(self):
+        with self.assertRaises(ValueError):
+            Config("terra", self.root, self.state, "admin",
+                   desktop_input_enabled=True)
+        with self.assertRaises(ValueError):
+            Config("terra", self.root, self.state, "admin",
+                   desktop_enabled="true")
+        self.agent.close()
+        self.agent = Agent(Config("terra", self.root, self.state, "admin",
+                                  desktop_enabled=True, desktop_input_enabled=False))
+        self.assertTrue(self.agent.desktop_status()["desktop_enabled"])
+        with self.assertRaises(PermissionError):
+            self.agent.desktop_click(10, 10)
+
     async def test_stdio_mcp_roundtrip(self):
         cfg = Path(self.tmp.name) / "stdio.json"
         cfg.write_text(json.dumps({
@@ -130,7 +158,10 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                     "execute_command", "run_argv", "preview_command", "audit_tail",
                     "start_job", "job_status", "list_jobs", "job_output", "cancel_job", "purge_job",
                     "binary_file_info", "read_binary_chunk", "begin_upload",
-                    "upload_chunk", "upload_status", "finish_upload", "cancel_upload"
+                    "upload_chunk", "upload_status", "finish_upload", "cancel_upload",
+                    "desktop_status", "desktop_connect", "desktop_screenshot",
+                    "desktop_click", "desktop_move", "desktop_drag", "desktop_scroll",
+                    "desktop_key", "desktop_type_text", "desktop_disconnect"
                 })
                 self.assertFalse(tools["execute_command"].annotations.readOnlyHint)
                 self.assertTrue(tools["execute_command"].annotations.destructiveHint)

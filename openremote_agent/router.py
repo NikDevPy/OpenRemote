@@ -38,6 +38,16 @@ REQUIRED_ROLES = {
     "execute_command": "operator",
     "preview_command": "viewer",
     "audit_tail": "admin",
+    "desktop_status": "admin",
+    "desktop_connect": "admin",
+    "desktop_screenshot": "admin",
+    "desktop_click": "admin",
+    "desktop_move": "admin",
+    "desktop_drag": "admin",
+    "desktop_scroll": "admin",
+    "desktop_key": "admin",
+    "desktop_type_text": "admin",
+    "desktop_disconnect": "admin",
 }
 
 

@@ -15,8 +15,9 @@
 - **Private ChatGPT integration:** an outbound Secure MCP Tunnel is used instead of opening an inbound port.
 - **Parallel chats:** SQLite WAL, per-target file locks, bounded OS command slots, and optional task labels/idempotency keys prevent common conflicts between independent conversations.
 - **Optional Linux desktop GUI:** a minimal dashboard with device checks, jobs, transfers, light/dark appearance, and minimize-to-tray on supported desktops.
+- **Owner-approved GNOME desktop control (opt-in):** observe the Linux Wayland screen and send bounded pointer/key input through XDG portals, PipeWire and a local Unix socket, only after GNOME's consent dialog. See [desktop access](docs/DESKTOP_ACCESS.md).
 
-**Current development version:** 0.6.2, Linux only, Python 3.11+, MCP SDK 1.29.0. This project is under active development and is not a production-grade multi-user remote-administration service.
+**Current development version:** 0.7.0, Linux only, Python 3.11+, MCP SDK 1.29.0. This project is under active development and is not a production-grade multi-user remote-administration service.
 
 ## Install and connect in six steps — Linux .deb preview
 

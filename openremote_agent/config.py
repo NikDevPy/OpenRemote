@@ -92,6 +92,8 @@ class Config:
     peers: dict[str, SSHPeer] = field(default_factory=dict)
     workspaces: dict[str, Workspace] = field(default_factory=dict)
     ad_hoc_enabled: bool = False
+    desktop_enabled: bool = False
+    desktop_input_enabled: bool = False
 
     def __post_init__(self) -> None:
         if not DEVICE_RE.fullmatch(self.device_id):
@@ -100,6 +102,10 @@ class Config:
             raise ValueError("Роль должна быть viewer, operator или admin")
         if type(self.ad_hoc_enabled) is not bool:
             raise ValueError("ad_hoc_enabled должен быть bool")
+        if type(self.desktop_enabled) is not bool or type(self.desktop_input_enabled) is not bool:
+            raise ValueError("desktop_enabled/desktop_input_enabled должны быть bool")
+        if self.desktop_input_enabled and not self.desktop_enabled:
+            raise ValueError("Управление экраном требует desktop_enabled")
         if not self.root.is_absolute() or not self.state.is_absolute():
             raise ValueError("root и state должны быть абсолютными путями")
         if self.root == self.state or self.root in self.state.parents or self.state in self.root.parents:
@@ -123,7 +129,7 @@ def load_config(path: Path) -> Config:
     if not path.is_file() or path.is_symlink() or st.st_uid != os.getuid() or st.st_mode & 0o022:
         raise ValueError("Конфигурация должна принадлежать пользователю и не допускать чужой записи")
     data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or set(data) - {"device_id", "root", "state", "role", "commands", "peers", "workspaces", "ad_hoc_enabled"}:
+    if not isinstance(data, dict) or set(data) - {"device_id", "root", "state", "role", "commands", "peers", "workspaces", "ad_hoc_enabled", "desktop_enabled", "desktop_input_enabled"}:
         raise ValueError("Неизвестные ключи конфигурации")
     entries = data.get("commands", {})
     if not isinstance(entries, dict):
@@ -160,4 +166,6 @@ def load_config(path: Path) -> Config:
         state=Path(data["state"]), role=data.get("role", "viewer"),
         commands=commands, peers=peers, workspaces=workspaces,
         ad_hoc_enabled=data.get("ad_hoc_enabled", False),
+        desktop_enabled=data.get("desktop_enabled", False),
+        desktop_input_enabled=data.get("desktop_input_enabled", False),
     )

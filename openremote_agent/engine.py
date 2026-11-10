@@ -16,6 +16,7 @@ from .filesystem import SafeFiles
 from .jobs import Jobs
 from .coordination import Coordinator
 from .transfers import Transfers
+from .desktop_ipc import DesktopClient
 
 
 class Agent:
@@ -33,10 +34,97 @@ class Agent:
         self.jobs = Jobs(config.state, self.coordinator)
         self.transfers = Transfers(config.state, self._file_area)
         self._executions = asyncio.Semaphore(1)
+        self.desktop = DesktopClient()
 
     def close(self) -> None:
+        # Desktop portal worker is owner-scoped and may serve another live chat.
+        # It exits after 15 minutes idle or an explicit desktop_disconnect.
         self.audit.close()
         self.files.close()
+
+    def _desktop_guard(self, operation: str, device_id: str | None,
+                       *, input_required: bool = False) -> float:
+        started = self._guard(operation, "admin", device_id)
+        if not self.config.desktop_enabled or (
+                input_required and not self.config.desktop_input_enabled):
+            self.audit.record(operation, "disabled", started)
+            raise PermissionError("Владелец не включил графический доступ в конфигурации")
+        return started
+
+    def desktop_status(self, device_id: str | None = None) -> dict:
+        started = self._guard("desktop_status", "admin", device_id)
+        result = self.desktop.status() if self.config.desktop_enabled else {
+            "connected": False, "input_granted": False,
+            "backend": "disabled", "native_width": 0, "native_height": 0,
+            "image_width": 0, "image_height": 0,
+        }
+        result["desktop_enabled"] = self.config.desktop_enabled
+        result["desktop_input_enabled"] = self.config.desktop_input_enabled
+        result["operation_id"] = self.audit.record("desktop_status", "ok", started)
+        return result
+
+    def desktop_connect(self, device_id: str | None = None) -> dict:
+        started = self._desktop_guard("desktop_connect", device_id)
+        try:
+            result = self.desktop.connect(self.config.desktop_input_enabled)
+        except Exception:
+            self.audit.record("desktop_connect", "denied", started)
+            raise
+        result["operation_id"] = self.audit.record("desktop_connect", "ok", started)
+        return result
+
+    def desktop_screenshot(self, max_width: int = 1280,
+                           device_id: str | None = None) -> dict:
+        started = self._desktop_guard("desktop_screenshot", device_id)
+        result = self.desktop.screenshot(max_width)
+        result["operation_id"] = self.audit.record("desktop_screenshot", "ok", started)
+        return result
+
+    def desktop_click(self, x: int, y: int, button: str = "left",
+                      device_id: str | None = None) -> dict:
+        started = self._desktop_guard("desktop_click", device_id, input_required=True)
+        result = self.desktop.click(x, y, button)
+        result["operation_id"] = self.audit.record("desktop_click", "ok", started)
+        return result
+
+    def desktop_move(self, x: int, y: int,
+                     device_id: str | None = None) -> dict:
+        started = self._desktop_guard("desktop_move", device_id, input_required=True)
+        result = self.desktop.move(x, y)
+        result["operation_id"] = self.audit.record("desktop_move", "ok", started)
+        return result
+
+    def desktop_drag(self, x: int, y: int, to_x: int, to_y: int,
+                     steps: int = 12, device_id: str | None = None) -> dict:
+        started = self._desktop_guard("desktop_drag", device_id, input_required=True)
+        result = self.desktop.drag(x, y, to_x, to_y, steps)
+        result["operation_id"] = self.audit.record("desktop_drag", "ok", started)
+        return result
+
+    def desktop_scroll(self, x: int, y: int, steps: int,
+                       device_id: str | None = None) -> dict:
+        started = self._desktop_guard("desktop_scroll", device_id, input_required=True)
+        result = self.desktop.scroll(x, y, steps)
+        result["operation_id"] = self.audit.record("desktop_scroll", "ok", started)
+        return result
+
+    def desktop_key(self, name: str, device_id: str | None = None) -> dict:
+        started = self._desktop_guard("desktop_key", device_id, input_required=True)
+        result = self.desktop.key(name)
+        result["operation_id"] = self.audit.record("desktop_key", "ok", started)
+        return result
+
+    def desktop_type_text(self, text: str, device_id: str | None = None) -> dict:
+        started = self._desktop_guard("desktop_type_text", device_id, input_required=True)
+        result = self.desktop.type_text(text)
+        result["operation_id"] = self.audit.record("desktop_type_text", "ok", started)
+        return result
+
+    def desktop_disconnect(self, device_id: str | None = None) -> dict:
+        started = self._guard("desktop_disconnect", "admin", device_id)
+        result = self.desktop.disconnect()
+        result["operation_id"] = self.audit.record("desktop_disconnect", "ok", started)
+        return result
 
     def command_digest(self, command_id: str) -> str:
         """Привязать локальное разрешение к узлу, каталогу и точному argv."""

@@ -156,6 +156,50 @@ class JobCancelResult(TypedDict):
     signal_sent: bool
     operation_id: str
 
+class DesktopStatusResult(TypedDict):
+    connected: bool
+    input_granted: bool
+    native_width: int
+    native_height: int
+    image_width: int
+    image_height: int
+    backend: str
+    operation_id: str
+
+
+class DesktopScreenshotResult(TypedDict):
+    mime_type: str
+    image_base64: str
+    width: int
+    height: int
+    native_width: int
+    native_height: int
+    operation_id: str
+
+
+class DesktopClickResult(TypedDict):
+    clicked: bool
+    x: int
+    y: int
+    button: str
+    operation_id: str
+
+
+class DesktopKeyResult(TypedDict):
+    pressed: str
+    operation_id: str
+
+
+class DesktopTypeResult(TypedDict):
+    typed: int
+    operation_id: str
+
+
+class DesktopDisconnectResult(TypedDict):
+    disconnected: bool
+    operation_id: str
+
+
 class AuditResult(TypedDict):
     entries: list[dict]
     operation_id: str
@@ -218,6 +262,16 @@ class Server:
         self.mcp.tool(annotations=replace_write)(self.finish_upload)
         self.mcp.tool(annotations=write)(self.cancel_upload)
         self.mcp.tool(annotations=read)(self.audit_tail)
+        self.mcp.tool(annotations=read)(self.desktop_status)
+        self.mcp.tool(annotations=write)(self.desktop_connect)
+        self.mcp.tool(annotations=read)(self.desktop_screenshot)
+        self.mcp.tool(annotations=command_write)(self.desktop_click)
+        self.mcp.tool(annotations=command_write)(self.desktop_move)
+        self.mcp.tool(annotations=command_write)(self.desktop_drag)
+        self.mcp.tool(annotations=command_write)(self.desktop_scroll)
+        self.mcp.tool(annotations=command_write)(self.desktop_key)
+        self.mcp.tool(annotations=command_write)(self.desktop_type_text)
+        self.mcp.tool(annotations=write)(self.desktop_disconnect)
 
     async def system_info(self, device_id: str | None = None) -> InfoResult:
         """Покажи сведения о разрешённом устройстве (локальном или через SSH)."""
@@ -352,6 +406,56 @@ class Server:
     async def cancel_job(self, job_id: str, device_id: str | None = None) -> JobCancelResult:
         """Ask the target to stop a running OS job and its child process group. Destructive; requires admin."""
         return await self.router.call("cancel_job", {"job_id": job_id}, device_id)
+
+    async def desktop_status(self, device_id: str | None = None) -> DesktopStatusResult:
+        """Состояние разрешённой графической сессии; требуется admin."""
+        return await self.router.call("desktop_status", {}, device_id)
+
+    async def desktop_connect(self, device_id: str | None = None) -> DesktopStatusResult:
+        """Открой подтверждение GNOME для захвата экрана/управления. Доступ разрешается локальным пользователем."""
+        return await self.router.call("desktop_connect", {}, device_id)
+
+    async def desktop_screenshot(self, max_width: int = 1280,
+                                 device_id: str | None = None) -> DesktopScreenshotResult:
+        """Снимок экрана через разрешённый PipeWire-поток, JPEG/base64; чувствительные данные."""
+        return await self.router.call("desktop_screenshot", {"max_width": max_width}, device_id)
+
+    async def desktop_click(self, x: int, y: int, button: str = "left",
+                            device_id: str | None = None) -> DesktopClickResult:
+        """Клик по координатам последнего скриншота; нужен отдельный локальный допуск ввода."""
+        return await self.router.call("desktop_click",
+                                      {"x": x, "y": y, "button": button}, device_id)
+
+    async def desktop_move(self, x: int, y: int, device_id: str | None = None) -> dict:
+        """Перемести указатель для проверки hover; координаты последнего скриншота."""
+        return await self.router.call("desktop_move", {"x": x, "y": y}, device_id)
+
+    async def desktop_drag(self, x: int, y: int, to_x: int, to_y: int,
+                           steps: int = 12, device_id: str | None = None) -> dict:
+        """Безопасно проведи мышью с зажатой левой кнопкой по заданному отрезку."""
+        return await self.router.call("desktop_drag", {
+            "x": x, "y": y, "to_x": to_x, "to_y": to_y, "steps": steps
+        }, device_id)
+
+    async def desktop_scroll(self, x: int, y: int, steps: int,
+                             device_id: str | None = None) -> dict:
+        """Прокрутка в точке (x,y) от -15 до +15 шагов по вертикали."""
+        return await self.router.call("desktop_scroll", {
+            "x": x, "y": y, "steps": steps
+        }, device_id)
+
+    async def desktop_key(self, name: str, device_id: str | None = None) -> DesktopKeyResult:
+        """Одна из разрешённых клавиш (enter, escape, tab, backspace, стрелки, f5...)."""
+        return await self.router.call("desktop_key", {"name": name}, device_id)
+
+    async def desktop_type_text(self, text: str,
+                                device_id: str | None = None) -> DesktopTypeResult:
+        """Ввод до 256 символов через разрешённый сеанс RemoteDesktop."""
+        return await self.router.call("desktop_type_text", {"text": text}, device_id)
+
+    async def desktop_disconnect(self, device_id: str | None = None) -> DesktopDisconnectResult:
+        """Немедленно закрыть согласованный сеанс удалённого экрана и ввода."""
+        return await self.router.call("desktop_disconnect", {}, device_id)
 
     async def audit_tail(self, limit: int = 20, device_id: str | None = None) -> AuditResult:
         """Последние события аудита на выбранном устройстве, без путей и содержимого. Нужна admin."""

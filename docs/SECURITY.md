@@ -99,3 +99,24 @@ Direct process calls are limited to 60 seconds and 8 KiB each on stdout/stderr. 
 - **Untrusted multi-user access:** Private tunnel association is not a replacement for per-user authorization.
 
 **Recommended rollout:** start with read-only local checks; add read/write project workspaces; then one trusted SSH peer; only then consider enabling arbitrary commands on a dedicated unprivileged account.
+
+## Remote desktop (0.7.0, opt-in)
+
+Desktop capture and pointer/keyboard input expose **private on-screen data** and
+may operate real applications. The new desktop tools require role=admin and
+explicit local configuration flags `desktop_enabled=true` and, for input,
+`desktop_input_enabled=true`. Both default to false.
+
+On GNOME Wayland, screen capture and input use the XDG RemoteDesktop/ScreenCast
+portal and its **native consent dialog**, not unrestricted X11 APIs, root/uinput,
+or an unprotected network service. A system-Python worker (required for
+distribution-native D-Bus and PipeWire bindings) listens only on a
+mode-0600 Unix socket owned by the logged-in user in /run/user/$UID.
+One user-approved session expires after 15 minutes idle and can be explicitly
+disconnected. A GNOME session prompt and actual PipeWire stream are mandatory.
+
+The screenshot result contains JPEG pixels encoded as base64. It may contain
+credentials, chats, files, notifications and personal content. Avoid storing
+screenshots in Git, traces, automation logs, or issue reports. Clients must
+not invoke input unless the user requested it, and should confirm before
+destructive actions even in an approved session. See docs/DESKTOP_ACCESS.md.
