@@ -1,6 +1,6 @@
 """Process boundary between OpenRemote Python venv and Ubuntu's system D-Bus/GI.
 
-The GNOME portal worker stays on the same UID and user session. It is not
+The portal worker stays on the same UID and user session. It is not
 reachable over TCP or Tailscale. Consent must be approved on the target screen.
 """
 from __future__ import annotations

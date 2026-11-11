@@ -1,16 +1,19 @@
-"""Owner-approved GNOME/Wayland desktop via XDG RemoteDesktop + ScreenCast portal.
+"""Owner-approved Wayland desktop via XDG RemoteDesktop or ScreenCast portal.
 
 No X11 bypass, no root/uinput, no network listener. Consent is granted by the
-desktop owner in the native GNOME portal dialog. Sessions are process-local and
+desktop owner through the configured system portal. Sessions are process-local and
 close when the MCP process stops or when desktop_disconnect is invoked.
 """
 from __future__ import annotations
 
 import base64
+import configparser
 import os
 import site
 from pathlib import Path
 import secrets
+import shutil
+import stat
 import threading
 import time
 
@@ -37,6 +40,31 @@ KEYSYMS = {
     "space": 0x20, "f5": 0xffc2,
 }
 BUTTONS = {"left": 0x110, "right": 0x111, "middle": 0x112}
+
+
+def require_labwc_chooser():
+    """Fail closed unless labwc uses an explicitly interactive wlr chooser.
+
+    xdg-desktop-portal-wlr can otherwise fall back to an arbitrary monitor.
+    The dedicated labwc config is deliberately narrow; the system must also
+    be tested to verify that its portal actually loads this configuration.
+    """
+    cfg = Path.home() / ".config/xdg-desktop-portal-wlr/labwc"
+    try:
+        s = cfg.lstat()
+        if (not stat.S_ISREG(s.st_mode) or s.st_uid != os.getuid()
+                or stat.S_IMODE(s.st_mode) & 0o022):
+            raise PermissionError("Небезопасная конфигурация выбора экрана")
+        parser = configparser.ConfigParser(interpolation=None)
+        with cfg.open(encoding="utf-8") as source:
+            parser.read_file(source)
+        if (parser.get("screencast", "chooser_type", fallback="") != "simple"
+                or parser.get("screencast", "chooser_cmd", fallback="")
+                != "/usr/bin/slurp -f %o -or"
+                or not shutil.which("/usr/bin/slurp")):
+            raise PermissionError("Требуется интерактивный выбор экрана labwc")
+    except (OSError, configparser.Error) as exc:
+        raise PermissionError("Не настроен интерактивный выбор экрана labwc") from exc
 
 
 def session_environment() -> dict[str, str]:
@@ -68,7 +96,7 @@ def session_environment() -> dict[str, str]:
 
 
 class DesktopPortal:
-    """One remote-desktop consent session; serializes DBus and video calls."""
+    """One portal consent session; serializes DBus and video calls."""
 
     def __init__(self):
         self.lock = threading.RLock()
@@ -81,6 +109,7 @@ class DesktopPortal:
         self.image_size = None
         self.input_granted = False
         self.last_use = 0.0
+        self.desktop_name = ""
 
     def _setup(self):
         if self.bus is not None:
@@ -89,7 +118,9 @@ class DesktopPortal:
         from dbus.mainloop.glib import DBusGMainLoop
         DBusGMainLoop(set_as_default=True)
         # This is a user-owned local session bus, not a public endpoint.
-        os.environ.update(session_environment())
+        env = session_environment()
+        self.desktop_name = env.get("XDG_CURRENT_DESKTOP", "")
+        os.environ.update(env)
         self.bus = dbus.SessionBus()
         obj = self.bus.get_object("org.freedesktop.portal.Desktop",
                                   "/org/freedesktop/portal/desktop")
@@ -147,19 +178,27 @@ class DesktopPortal:
                 return self.status()
             self._setup()
             try:
+                if "labwc" in self.desktop_name.lower().split(":"):
+                    require_labwc_chooser()
+                # wlroots' standard portal implements ScreenCast but not
+                # RemoteDesktop. A read-only session must not require or request
+                # input devices. Input sessions still require RemoteDesktop and
+                # never silently fall back to any other injection mechanism.
+                session_portal = self.remote if enable_input else self.screencast
                 created = self._request(
-                    self.remote, "CreateSession", (),
+                    session_portal, "CreateSession", (),
                     options={"session_handle_token": dbus.String(
                         "or_session" + secrets.token_hex(8))},
                     timeout=12,
                 )
                 self.session = str(created["session_handle"])
-                self._request(
-                    self.remote, "SelectDevices",
-                    (dbus.ObjectPath(self.session),),
-                    options={"types": dbus.UInt32(3 if enable_input else 0)},
-                    timeout=12,
-                )
+                if enable_input:
+                    self._request(
+                        self.remote, "SelectDevices",
+                        (dbus.ObjectPath(self.session),),
+                        options={"types": dbus.UInt32(3)},
+                        timeout=12,
+                    )
                 self._request(
                     self.screencast, "SelectSources",
                     (dbus.ObjectPath(self.session),),
@@ -168,7 +207,7 @@ class DesktopPortal:
                     timeout=12,
                 )
                 started = self._request(
-                    self.remote, "Start", (dbus.ObjectPath(self.session), dbus.String("")),
+                    session_portal, "Start", (dbus.ObjectPath(self.session), dbus.String("")),
                     timeout=55,
                 )
                 streams = started.get("streams", [])
@@ -199,22 +238,22 @@ class DesktopPortal:
 
     def _require(self, *, input_required=False):
         if not self.session or self.stream is None:
-            raise PermissionError("Сначала подтвердите desktop_connect в GNOME")
+            raise PermissionError("Сначала подтвердите desktop_connect в системном портале")
         if input_required and not self.input_granted:
-            raise PermissionError("GNOME не выдал разрешение на управление")
+            raise PermissionError("Системный портал не выдал разрешение на управление")
         if time.monotonic() - self.last_use > 900:
             self.disconnect()
             raise PermissionError("Сессия закрыта после 15 минут бездействия")
         self.last_use = time.monotonic()
 
     def screenshot(self, max_width=1280) -> dict:
-        dbus, gi = _system_dbus_gi()
-        gi.require_version("Gst", "1.0")
-        from gi.repository import Gst
         with self.lock:
             self._require()
             if type(max_width) is not int or not 320 <= max_width <= 1920:
                 raise ValueError("max_width: от 320 до 1920")
+            dbus, gi = _system_dbus_gi()
+            gi.require_version("Gst", "1.0")
+            from gi.repository import Gst
             Gst.init(None)
             fdref = self.screencast.OpenPipeWireRemote(
                 dbus.ObjectPath(self.session), dbus.Dictionary({}, signature="sv"))
@@ -316,11 +355,11 @@ class DesktopPortal:
                     "to_x": to_x, "to_y": to_y}
 
     def scroll(self, x: int, y: int, steps: int) -> dict:
-        import dbus
         with self.lock:
             self._require(input_required=True)
             if type(steps) is not int or steps == 0 or abs(steps) > 15:
                 raise ValueError("Число шагов скролла от -15 до 15, кроме 0")
+            import dbus
             self._move_pixels(x, y)
             self.remote.NotifyPointerAxisDiscrete(
                 dbus.ObjectPath(self.session), dbus.Dictionary({}, signature="sv"),

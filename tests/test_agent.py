@@ -137,6 +137,24 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(PermissionError):
             self.agent.desktop_click(10, 10)
 
+    async def test_stdio_desktop_status_retains_policy_fields(self):
+        cfg = Path(self.tmp.name) / "desktop-stdio.json"
+        cfg.write_text(json.dumps({
+            "device_id": "terra", "root": str(self.root), "state": str(self.state),
+            "role": "admin", "desktop_enabled": True, "desktop_input_enabled": False,
+        }))
+        os.chmod(cfg, 0o600)
+        params = StdioServerParameters(command=os.sys.executable, args=[
+            "-m", "openremote_agent.server", "--config", str(cfg)])
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool("desktop_status", {})
+                self.assertFalse(result.isError, str(result.content))
+                self.assertTrue(result.structuredContent["desktop_enabled"])
+                self.assertFalse(result.structuredContent["desktop_input_enabled"])
+                self.assertFalse(result.structuredContent["connected"])
+
     async def test_stdio_mcp_roundtrip(self):
         cfg = Path(self.tmp.name) / "stdio.json"
         cfg.write_text(json.dumps({

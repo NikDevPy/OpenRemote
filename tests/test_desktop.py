@@ -1,13 +1,14 @@
 """Policy and MCP desktop integration; never opens a real system screen."""
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 from openremote_agent.config import Config
 from openremote_agent.engine import Agent
 from openremote_agent.router import REQUIRED_ROLES
-from openremote_agent.desktop import DesktopPortal, KEYSYMS, BUTTONS
+from openremote_agent.desktop import DesktopPortal, KEYSYMS, BUTTONS, require_labwc_chooser
 
 
 class DesktopPolicyTests(unittest.TestCase):
@@ -92,6 +93,54 @@ class DesktopPolicyTests(unittest.TestCase):
         self.assertTrue(p.disconnect()["disconnected"])
         self.assertIn("left", BUTTONS)
         self.assertIn("escape", KEYSYMS)
+
+    def test_read_only_connect_uses_screencast_not_remote_desktop(self):
+        portal = DesktopPortal()
+        portal.screencast, portal.remote = object(), object()
+        dbus = SimpleNamespace(String=str, ObjectPath=str, UInt32=int, Boolean=bool)
+        responses = [{"session_handle": "/test"}, {},
+                     {"streams": [(42, {"size": (1280, 720)})]}]
+        with patch("openremote_agent.desktop._system_dbus_gi", return_value=(dbus, None)), \
+             patch.object(portal, "_setup"), \
+             patch.object(portal, "_request", side_effect=responses) as request:
+            result = portal.connect(False)
+        self.assertTrue(result["connected"])
+        self.assertFalse(result["input_granted"])
+        self.assertEqual([call.args[1] for call in request.call_args_list],
+                         ["CreateSession", "SelectSources", "Start"])
+        self.assertTrue(all(call.args[0] is portal.screencast
+                            for call in request.call_args_list))
+
+    def test_input_connect_requires_remote_desktop_without_fallback(self):
+        portal = DesktopPortal()
+        portal.screencast, portal.remote = object(), object()
+        dbus = SimpleNamespace(String=str, ObjectPath=str, UInt32=int, Boolean=bool)
+        with patch("openremote_agent.desktop._system_dbus_gi", return_value=(dbus, None)), \
+             patch.object(portal, "_setup"), \
+             patch.object(portal, "_request", side_effect=PermissionError("denied")) as request, \
+             patch.object(portal, "disconnect"):
+            with self.assertRaises(PermissionError):
+                portal.connect(True)
+        self.assertEqual(request.call_count, 1)
+        self.assertIs(request.call_args.args[0], portal.remote)
+
+    def test_labwc_rejects_missing_or_noninteractive_chooser(self):
+        config = Path(self.temp.name) / ".config/xdg-desktop-portal-wlr/labwc"
+        config.parent.mkdir(parents=True)
+        with patch("pathlib.Path.home", return_value=Path(self.temp.name)), \
+             patch("shutil.which", return_value="/usr/bin/slurp"):
+            with self.assertRaises(PermissionError):
+                require_labwc_chooser()
+            config.write_text("[screencast]\nchooser_type=none\n")
+            with self.assertRaises(PermissionError):
+                require_labwc_chooser()
+            config.write_text("[screencast]\nchooser_type=simple\n"
+                              "chooser_cmd=/usr/bin/slurp -f %o -or\n")
+            config.chmod(0o600)
+            require_labwc_chooser()
+            config.chmod(0o666)
+            with self.assertRaises(PermissionError):
+                require_labwc_chooser()
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ import shlex
 import time
 from pathlib import Path
 import sys
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 class ProbeResult(TypedDict):
     device_id: str
@@ -159,6 +159,8 @@ class JobCancelResult(TypedDict):
 class DesktopStatusResult(TypedDict):
     connected: bool
     input_granted: bool
+    desktop_enabled: NotRequired[bool]
+    desktop_input_enabled: NotRequired[bool]
     native_width: int
     native_height: int
     image_width: int
@@ -412,7 +414,7 @@ class Server:
         return await self.router.call("desktop_status", {}, device_id)
 
     async def desktop_connect(self, device_id: str | None = None) -> DesktopStatusResult:
-        """Открой подтверждение GNOME для захвата экрана/управления. Доступ разрешается локальным пользователем."""
+        """Открой системный выбор экрана; управление требует отдельной поддержки и допуска ввода."""
         return await self.router.call("desktop_connect", {}, device_id)
 
     async def desktop_screenshot(self, max_width: int = 1280,
