@@ -83,8 +83,10 @@ class DesktopPolicyTests(unittest.TestCase):
     def test_portal_has_safe_initial_state(self):
         p = DesktopPortal()
         self.assertFalse(p.status()["connected"])
-        with self.assertRaises(PermissionError):
-            p.screenshot()
+        with patch("openremote_agent.desktop._system_dbus_gi") as optional_import:
+            with self.assertRaises(PermissionError):
+                p.screenshot()
+            optional_import.assert_not_called()
         with self.assertRaises(PermissionError):
             p.click(10, 20)
         with self.assertRaises(PermissionError):
