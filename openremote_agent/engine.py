@@ -14,6 +14,7 @@ from .audit import Audit
 from .config import Config, ROLES
 from .filesystem import SafeFiles
 from .jobs import Jobs
+from .checkpoints import Checkpoints
 from .coordination import Coordinator
 from .transfers import Transfers
 from .desktop_ipc import DesktopClient
@@ -32,6 +33,7 @@ class Agent:
             raise
         self.coordinator = Coordinator(config.state)
         self.jobs = Jobs(config.state, self.coordinator)
+        self.checkpoints = Checkpoints(config.state, self.coordinator)
         self.transfers = Transfers(config.state, self._file_area)
         self._executions = asyncio.Semaphore(1)
         self.desktop = DesktopClient()
@@ -333,6 +335,64 @@ class Agent:
         started = self._guard("job_status", "admin", device_id)
         result = self.jobs.status(job_id)
         result["operation_id"] = self.audit.record("job_status", "ok", started)
+        return result
+
+    def _snapshot_data(self, job_id: str, tail_bytes: int) -> dict:
+        if type(tail_bytes) is not int or not 1 <= tail_bytes <= 4096:
+            raise ValueError("Tail byte limit must be 1-4096")
+        result = self.jobs.status(job_id)
+        for stream in ("stdout", "stderr"):
+            size = result[stream + "_bytes"]
+            offset = max(0, size - tail_bytes)
+            chunk = self.jobs.output(job_id, stream=stream, offset=offset,
+                                     limit_bytes=tail_bytes)
+            result[stream + "_tail"] = chunk["text"]
+            result[stream + "_tail_offset"] = offset
+        result["elapsed_seconds"] = max(0, int(time.time()) - result["started_at"])
+        return result
+
+    def job_snapshot(self, job_id: str, tail_bytes: int = 1024,
+                     device_id: str | None = None) -> dict:
+        """One bounded status+output reply; safe for MCP reconnects."""
+        started = self._guard("job_snapshot", "admin", device_id)
+        result = self._snapshot_data(job_id, tail_bytes)
+        result["operation_id"] = self.audit.record("job_snapshot", "ok", started)
+        return result
+
+    def task_checkpoint(self, task_id: str, stage: str, status: str = "active",
+                        summary: str = "", job_id: str | None = None,
+                        expected_revision: int = 0,
+                        device_id: str | None = None) -> dict:
+        """Persist a privacy-bounded stage with optimistic revision control."""
+        started = self._guard("task_checkpoint", "admin", device_id)
+        if job_id is not None:
+            self.jobs.status(job_id)  # A job on this device, never an arbitrary path.
+        result = self.checkpoints.save(task_id, stage, status, summary,
+                                       job_id, expected_revision)
+        result["operation_id"] = self.audit.record("task_checkpoint", "ok", started)
+        return result
+
+    def task_resume(self, task_id: str, tail_bytes: int = 1024,
+                    device_id: str | None = None) -> dict:
+        """Read the last checkpoint and, when present, the associated job."""
+        started = self._guard("task_resume", "admin", device_id)
+        task = self.checkpoints.get(task_id)
+        job = None
+        job_missing = False
+        if task["job_id"]:
+            try:
+                job = self._snapshot_data(task["job_id"], tail_bytes)
+            except ValueError:
+                job_missing = True  # Job was purged; task metadata survives.
+        result = {"task": task, "job": job, "job_missing": job_missing}
+        result["operation_id"] = self.audit.record("task_resume", "ok", started)
+        return result
+
+    def list_tasks(self, limit: int = 20, device_id: str | None = None) -> dict:
+        """Return at most 50 owner-local checkpoints."""
+        started = self._guard("list_tasks", "admin", device_id)
+        result = self.checkpoints.list(limit)
+        result["operation_id"] = self.audit.record("list_tasks", "ok", started)
         return result
 
     def list_jobs(self, limit: int = 20, device_id: str | None = None) -> dict:
