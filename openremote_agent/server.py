@@ -145,6 +145,38 @@ class JobOutputResult(TypedDict):
     end_of_stream: bool
     operation_id: str
 
+class JobSnapshotResult(JobStatusResult):
+    stdout_tail: str
+    stderr_tail: str
+    stdout_tail_offset: int
+    stderr_tail_offset: int
+    elapsed_seconds: int
+
+
+class TaskCheckpointResult(TypedDict):
+    task_id: str
+    stage: str
+    status: str
+    summary: str
+    job_id: str | None
+    revision: int
+    updated_at: int
+    reused: bool
+    operation_id: str
+
+
+class TaskResumeResult(TypedDict):
+    task: dict
+    job: dict | None
+    job_missing: bool
+    operation_id: str
+
+
+class TaskListResult(TypedDict):
+    tasks: list[dict]
+    operation_id: str
+
+
 class JobPurgeResult(TypedDict):
     job_id: str
     removed: bool
@@ -252,6 +284,10 @@ class Server:
         self.mcp.tool(annotations=read)(self.job_status)
         self.mcp.tool(annotations=read)(self.list_jobs)
         self.mcp.tool(annotations=read)(self.job_output)
+        self.mcp.tool(annotations=read)(self.job_snapshot)
+        self.mcp.tool(annotations=replace_write)(self.task_checkpoint)
+        self.mcp.tool(annotations=read)(self.task_resume)
+        self.mcp.tool(annotations=read)(self.list_tasks)
         self.mcp.tool(annotations=command_write)(self.cancel_job)
         self.mcp.tool(annotations=replace_write)(self.purge_job)
         self.mcp.tool(annotations=read)(self.binary_file_info)
@@ -398,6 +434,37 @@ class Server:
             "job_id": job_id, "stream": stream, "offset": offset,
             "limit_bytes": limit_bytes,
         }, device_id)
+
+    async def job_snapshot(self, job_id: str, device_id: str | None = None,
+                           tail_bytes: int = 1024) -> JobSnapshotResult:
+        """Return current job status plus bounded stdout/stderr tails in one call, even after MCP reconnection. Requires admin."""
+        return await self.router.call("job_snapshot", {
+            "job_id": job_id, "tail_bytes": tail_bytes,
+        }, device_id)
+
+    async def task_checkpoint(self, task_id: str, stage: str,
+                              device_id: str | None = None,
+                              status: str = "active", summary: str = "",
+                              job_id: str | None = None,
+                              expected_revision: int = 0) -> TaskCheckpointResult:
+        """Record a resumable task stage on this device, without prompts or secrets. Use expected_revision from the previous reply; requires admin."""
+        return await self.router.call("task_checkpoint", {
+            "task_id": task_id, "stage": stage, "status": status,
+            "summary": summary, "job_id": job_id,
+            "expected_revision": expected_revision,
+        }, device_id)
+
+    async def task_resume(self, task_id: str, device_id: str | None = None,
+                          tail_bytes: int = 1024) -> TaskResumeResult:
+        """Recover last task checkpoint and the associated job tail; requires admin."""
+        return await self.router.call("task_resume", {
+            "task_id": task_id, "tail_bytes": tail_bytes,
+        }, device_id)
+
+    async def list_tasks(self, device_id: str | None = None,
+                         limit: int = 20) -> TaskListResult:
+        """List recent owner-local resumable tasks on a registered device. Requires admin."""
+        return await self.router.call("list_tasks", {"limit": limit}, device_id)
 
     async def purge_job(self, job_id: str, device_id: str | None = None) -> JobPurgeResult:
         """Remove completed/cancelled job logs and metadata; will not remove running jobs. Destructive; requires admin."""

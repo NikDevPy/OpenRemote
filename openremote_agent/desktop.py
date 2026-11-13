@@ -208,13 +208,15 @@ class DesktopPortal:
         self.last_use = time.monotonic()
 
     def screenshot(self, max_width=1280) -> dict:
-        dbus, gi = _system_dbus_gi()
-        gi.require_version("Gst", "1.0")
-        from gi.repository import Gst
         with self.lock:
+            # Check portal consent *before* importing optional D-Bus/GStreamer
+            # bindings. Headless hosts must deny the request cleanly.
             self._require()
             if type(max_width) is not int or not 320 <= max_width <= 1920:
                 raise ValueError("max_width: от 320 до 1920")
+            dbus, gi = _system_dbus_gi()
+            gi.require_version("Gst", "1.0")
+            from gi.repository import Gst
             Gst.init(None)
             fdref = self.screencast.OpenPipeWireRemote(
                 dbus.ObjectPath(self.session), dbus.Dictionary({}, signature="sv"))

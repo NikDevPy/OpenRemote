@@ -156,7 +156,8 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                     "system_info", "probe_device", "list_devices", "list_workspaces",
                     "list_files", "read_text", "write_text", "replace_text",
                     "execute_command", "run_argv", "preview_command", "audit_tail",
-                    "start_job", "job_status", "list_jobs", "job_output", "cancel_job", "purge_job",
+                    "start_job", "job_status", "list_jobs", "job_output", "job_snapshot",
+                    "task_checkpoint", "task_resume", "list_tasks", "cancel_job", "purge_job",
                     "binary_file_info", "read_binary_chunk", "begin_upload",
                     "upload_chunk", "upload_status", "finish_upload", "cancel_upload",
                     "desktop_status", "desktop_connect", "desktop_screenshot",
@@ -167,6 +168,8 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(tools["execute_command"].annotations.destructiveHint)
                 self.assertTrue(tools["preview_command"].annotations.readOnlyHint)
                 self.assertTrue(tools["read_text"].annotations.readOnlyHint)
+                self.assertTrue(tools["job_snapshot"].annotations.readOnlyHint)
+                self.assertFalse(tools["task_checkpoint"].annotations.readOnlyHint)
                 result = await session.call_tool("write_text", {
                     "path": "roundtrip.txt", "content": "works"
                 })

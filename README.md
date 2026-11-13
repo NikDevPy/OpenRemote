@@ -10,6 +10,8 @@
 - **Projects and files:** list owner-approved workspaces, read files, create new text files, and replace existing text only when its SHA-256 checksum matches.
 - **Commands:** run named commands from a local allowlist. An opt-in advanced mode runs an executable and arguments without a fixed command-name blacklist.
 - **Persistent jobs:** start long-running commands that survive MCP/SSH disconnects; page stdout/stderr, cancel a process group, inspect history, and clean old logs.
+- **Reconnect recovery (v0.7.1):** one-call job status and bounded output tails, persistent task checkpoints with version-checked updates, and recovery across chat/SSH disconnections.
+- **Optional tunnel monitor (v0.7.1):** owner-local /readyz checks with opt-in bounded systemd user-service restart; no keys in logs.
 - **Binary transfer:** upload/download in bounded base64 chunks with resume offsets, a 1 GiB per-file limit, and SHA-256 integrity verification.
 - **Approvals and audit:** role checks (viewer/operator/admin), one-time local approval for sensitive predefined commands, command timeouts, and an SQLite audit log.
 - **Private ChatGPT integration:** an outbound Secure MCP Tunnel is used instead of opening an inbound port.
@@ -17,7 +19,7 @@
 - **Optional Linux desktop GUI:** a minimal dashboard with device checks, jobs, transfers, light/dark appearance, and minimize-to-tray on supported desktops.
 - **Owner-approved GNOME desktop control (opt-in):** observe the Linux Wayland screen and send bounded pointer/key input through XDG portals, PipeWire and a local Unix socket, only after GNOME's consent dialog. See [desktop access](docs/DESKTOP_ACCESS.md).
 
-**Current development version:** 0.7.0, Linux only, Python 3.11+, MCP SDK 1.29.0. This project is under active development and is not a production-grade multi-user remote-administration service.
+**Current development version:** 0.7.1, Linux only, Python 3.11+, MCP SDK 1.29.0. This project is under active development and is not a production-grade multi-user remote-administration service.
 
 ## Install and connect in six steps — Linux .deb preview
 
