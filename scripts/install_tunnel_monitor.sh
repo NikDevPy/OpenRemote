@@ -36,7 +36,15 @@ if [[ ! "$url" =~ ^http://127\.0\.0\.1:[0-9]{1,5}/readyz$ ]]; then
     exit 2
 fi
 
-"$python" -c 'import openremote_agent.tunnel_health' >/dev/null
+# The gateway can run from an isolated source checkout while its venv still
+# contains an older editable installation. Pin the monitor to this checkout.
+release_root="$(cd -- "$(dirname -- "$0")/.." && pwd -P)"
+if [[ ! -f "$release_root/openremote_agent/tunnel_health.py" ||
+      ! "$release_root" =~ ^/[a-zA-Z0-9_./-]+$ ]]; then
+    echo "Invalid release directory for OpenRemote tunnel monitor" >&2
+    exit 2
+fi
+(cd "$release_root" && "$python" -c 'import openremote_agent.tunnel_health') >/dev/null
 home_units="$HOME/.config/systemd/user"
 mkdir -p "$home_units"
 unit="$home_units/openremote-tunnel-monitor.service"
@@ -54,6 +62,7 @@ After=network.target
 [Service]
 Type=oneshot
 UMask=0077
+WorkingDirectory=$release_root
 ExecStart=$python -m openremote_agent.tunnel_health --url $url --service $service --failures 3 --cooldown-seconds 300 $restart
 EOF
 
