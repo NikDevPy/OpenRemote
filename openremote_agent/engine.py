@@ -36,6 +36,8 @@ class Agent:
         self.checkpoints = Checkpoints(config.state, self.coordinator)
         self.transfers = Transfers(config.state, self._file_area)
         self._executions = asyncio.Semaphore(1)
+        # Wait locally before taking one of the shared cross-chat OS slots.
+        self._command_admission = asyncio.Semaphore(1)
         self.desktop = DesktopClient()
 
     def close(self) -> None:
@@ -425,8 +427,9 @@ class Agent:
         """Cross-process capped direct execution."""
         started = time.monotonic()
         try:
-            with self.coordinator.slot("direct-commands", limit=4):
-                return await self._run_argv_inner(argv, workspace, timeout, device_id)
+            async with self._command_admission:
+                with self.coordinator.slot("direct-commands", limit=4):
+                    return await self._run_argv_inner(argv, workspace, timeout, device_id)
         except TimeoutError:
             self.audit.record("run_argv", "capacity", started)
             raise ValueError("Concurrent command capacity reached; retry later") from None
@@ -509,8 +512,9 @@ class Agent:
         """Capped execution of a locally approved command."""
         started = time.monotonic()
         try:
-            with self.coordinator.slot("direct-commands", limit=4):
-                return await self._execute_command_inner(command_id, device_id)
+            async with self._command_admission:
+                with self.coordinator.slot("direct-commands", limit=4):
+                    return await self._execute_command_inner(command_id, device_id)
         except TimeoutError:
             self.audit.record("execute_command", "capacity", started)
             raise ValueError("Concurrent command capacity reached; retry later") from None
