@@ -409,10 +409,10 @@ class Server:
         return await self.router.call("cancel_upload", {"upload_id": upload_id}, device_id)
 
     async def start_job(self, argv: list[str], device_id: str | None = None,
-                        workspace: str = "sandbox", timeout_seconds: int = 3600,
+                        workspace: str = "sandbox", timeout_seconds: int = 0,
                         task_label: str | None = None,
                         idempotency_key: str | None = None) -> JobStartResult:
-        """Start a potentially destructive long-running command as the target OS user; requires admin and ad_hoc_enabled. Output and status are persisted after MCP disconnect; maximum 6h."""
+        """Start a potentially destructive long-running command as the target OS user; requires admin and ad_hoc_enabled. Output and status are persisted after MCP disconnect; timeout_seconds=0 (default) means no execution deadline; positive seconds set an optional deadline."""
         return await self.router.call("start_job", {
             "argv": argv, "workspace": workspace, "timeout_seconds": timeout_seconds,
             "task_label": task_label, "idempotency_key": idempotency_key,

@@ -64,6 +64,28 @@ class JobsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "cancelled")
         self.assertFalse(self.agent.cancel_job(job_id)["signal_sent"])
 
+    async def test_unlimited_is_default_and_completes(self):
+        info = self.agent.start_job([sys.executable, "-c",
+                                     "import time; time.sleep(.6); print('DONE')"])
+        job_id = info["job_id"]
+        self.ids.append(job_id)
+        self.assertEqual(info["timeout_seconds"], 0)
+        result = await self.wait_job(job_id)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["exit_code"], 0)
+        self.assertIn("DONE", self.agent.job_output(job_id)["text"])
+
+    async def test_unlimited_remains_cancellable(self):
+        job_id = self.start(["/usr/bin/sleep", "30"], timeout=0)
+        await asyncio.sleep(.3)
+        self.assertEqual(self.agent.job_status(job_id)["timeout_seconds"], 0)
+        self.assertTrue(self.agent.cancel_job(job_id)["signal_sent"])
+        self.assertEqual((await self.wait_job(job_id))["status"], "cancelled")
+
+    async def test_explicit_timeout_above_old_limit(self):
+        job_id = self.start(["/usr/bin/true"], timeout=21601)
+        self.assertEqual((await self.wait_job(job_id))["status"], "completed")
+
     async def test_timeout(self):
         job_id = self.start(["/usr/bin/sleep", "10"], timeout=1)
         result = await self.wait_job(job_id)
@@ -98,7 +120,7 @@ class JobsTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             self.agent.start_job(["sleep", "1"])
         with self.assertRaises(ValueError):
-            self.agent.start_job(["/usr/bin/sleep", "1"], timeout_seconds=0)
+            self.agent.start_job(["/usr/bin/sleep", "1"], timeout_seconds=-1)
         for bad in ("bogus", "../" + "0"*32):
             with self.assertRaises(ValueError):
                 self.agent.job_status(bad)

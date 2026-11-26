@@ -17,7 +17,6 @@ import time
 import uuid
 
 JOB_ID = re.compile(r"[0-9a-f]{32}\Z")
-MAX_JOB_SECONDS = 21600
 MAX_OUTPUT_CHUNK = 16384
 MAX_ACTIVE_JOBS = 8
 MAX_STORED_JOBS = 250
@@ -78,7 +77,7 @@ class Jobs:
     def _alive(meta: dict) -> bool:
         return pid_start(meta.get("worker_pid", -1)) == meta.get("worker_start_ticks")
 
-    def start(self, argv: list[str], cwd: str, timeout_seconds: int = 3600,
+    def start(self, argv: list[str], cwd: str, timeout_seconds: int = 0,
               task_label: str | None = None,
               idempotency_key: str | None = None) -> dict:
         """Admit one background job atomically across concurrent MCP processes.
@@ -90,8 +89,8 @@ class Jobs:
                 not all(isinstance(arg, str) and arg and "\x00" not in arg for arg in argv) or
                 sum(map(len, argv)) > 8192 or not os.path.isabs(argv[0])):
             raise ValueError("Need an absolute executable and 1–40 bounded argv")
-        if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= MAX_JOB_SECONDS:
-            raise ValueError("Job timeout must be 1–21600 seconds")
+        if type(timeout_seconds) is not int or timeout_seconds < 0:
+            raise ValueError("Job timeout must be a non-negative integer (0 = unlimited)")
         if not os.path.isdir(cwd):
             raise ValueError("Working directory missing")
         if task_label is not None and (not isinstance(task_label, str)

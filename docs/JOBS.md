@@ -50,7 +50,7 @@ See [MULTI_CHAT](MULTI_CHAT.md).
 - A detached per-job Python worker survives normal MCP stdio or SSH session
   closure. The job's stdout/stderr and result are persisted in the target
   device's private state/jobs directory (mode 0700).
-- Maximum runtime: **6 hours** per job. Default: 1 hour.
+- Execution deadline: **none by default** (`timeout_seconds=0`). A positive integer explicitly sets a deadline in seconds; no fixed six-hour maximum. Use `cancel_job` to stop a running job.
 - Logs: up to **8 MiB per stream**; excess output is read and discarded
   to prevent a blocked child or unbounded disk growth. The status reports
   truncation.

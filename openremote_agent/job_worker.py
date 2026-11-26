@@ -92,14 +92,15 @@ async def execute(folder: Path) -> None:
 
     stdout_task = asyncio.create_task(capture(running.stdout, "stdout"))
     stderr_task = asyncio.create_task(capture(running.stderr, "stderr"))
-    deadline = time.monotonic() + spec["timeout_seconds"]
+    timeout_seconds = spec["timeout_seconds"]
+    started = time.monotonic()
     timed_out = False
     stopping_since = None
 
     while running.returncode is None:
         if cancel.exists():
             cancelled = True
-        if time.monotonic() >= deadline:
+        if timeout_seconds > 0 and time.monotonic() - started >= timeout_seconds:
             timed_out = True
         if (cancelled or timed_out) and stopping_since is None:
             stop_child()

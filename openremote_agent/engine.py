@@ -313,7 +313,7 @@ class Agent:
         return result
 
     def start_job(self, argv: list[str], workspace: str = "sandbox",
-                  timeout_seconds: int = 3600, device_id: str | None = None,
+                  timeout_seconds: int = 0, device_id: str | None = None,
                   task_label: str | None = None,
                   idempotency_key: str | None = None) -> dict:
         """Launch detached process with bounded logs; survives stdio disconnect."""

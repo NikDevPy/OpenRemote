@@ -119,7 +119,7 @@ See the [quickstart](docs/QUICKSTART.md) for the remaining steps. Never copy som
 | execute_command | Execute a predefined command ID | operator / admin + local approval |
 | run_argv | Opt-in arbitrary executable + arguments | admin + ad_hoc_enabled |
 | audit_tail | Recent local audit events | admin |
-| start_job | Launch a detached command (up to 6 hours) | admin + ad_hoc_enabled |
+| start_job | Launch a detached command (no deadline by default) | admin + ad_hoc_enabled |
 | job_status / list_jobs | Check persisted job status and history | admin |
 | job_output | Read stored stdout/stderr in chunks | admin |
 | cancel_job / purge_job | Stop a running job or delete completed logs | admin |
@@ -154,7 +154,7 @@ A public **GitHub repository** does not create a public **plugin**. Every person
 
 - Linux-focused; the optional desktop GUI is a Linux preview. No Windows/macOS native agent or verified GUI releases yet.
 - Text file calls are limited to 64 KiB; **binary transfers** support files up to 1 GiB in 128 KiB raw chunks, with additional MCP/ChatGPT request limits.
-- Direct `run_argv` calls are limited to 60 seconds and 8 KiB per output stream; **persistent jobs** run up to 6 hours and retain up to 8 MiB per output stream.
+- Direct `run_argv` calls are limited to 60 seconds and 8 KiB per output stream; **persistent jobs** have no execution deadline by default and retain up to 8 MiB per output stream.
 - The OpenAI tunnel has separate request, message-size, and rate limits. This is not an unlimited-throughput connection.
 - Configured SSH peers are reported as configured, not automatically proven online.
 - No per-user OAuth or hard subprocess isolation; **interactive PTY input is not yet available**. Background jobs and chunked binary transfers are supported.

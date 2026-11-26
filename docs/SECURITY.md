@@ -62,8 +62,10 @@ Task labels are user-provided strings, not verified chat identities.
   process inspection while running.
 - Jobs are not interactive PTY sessions, are not isolated containers,
   and do not automatically restart after reboot. The per-device safeguards
-  limit active jobs (8), stored jobs (250), runtime (6 hours) and output
-  (8 MiB per stream).
+  limit active jobs (8), stored jobs (250) and output
+  (8 MiB per stream). Jobs have no execution deadline by default; callers
+  can set a positive timeout or cancel the job. Resource and permission
+  safeguards remain in force.
 - Binary uploads are staged within the approved workspace. Up to eight
   pending sessions may remain on disk for 24 hours, using the configured OS
   user's storage quota. The caller supplies a whole-file SHA-256; mismatches
